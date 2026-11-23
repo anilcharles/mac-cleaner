@@ -29,6 +29,9 @@ jobs:
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
+      - name: Tests
+        run: cargo test --locked
+
       - name: Build app bundle
         run: ./scripts/bundle.sh
 
