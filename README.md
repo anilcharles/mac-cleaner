@@ -137,6 +137,8 @@ How it works: every size in the UI is written as `pt(n)` (defined in `theme.rs`)
 2. Open the DMG and drag **Mac Cleaner** onto the **Applications** shortcut.
 3. Open Mac Cleaner from Applications.
 
+What changed in each version is in [CHANGELOG.md](CHANGELOG.md), and the same notes appear on each release.
+
 **"Apple could not verify Mac Cleaner is free of malware".** The first time you open a copy downloaded in a web browser, macOS shows this warning. The app is ad-hoc signed but not notarized by Apple, and macOS checks for notarization on anything a browser downloads. Do not click **Move to Bin**; click **Done**, then either:
 
 - open **System Settings → Privacy & Security**, scroll to *"Mac Cleaner" was blocked*, and click **Open Anyway**; or
@@ -159,6 +161,8 @@ cargo run --release
 ./scripts/install.sh       # build, quit the running app, replace /Applications/Mac Cleaner.app, open it
 ./scripts/screenshots.sh   # regenerate docs/screenshots/ from sample data
 ```
+
+To release: add a `## [x.y.z] - date` section to `CHANGELOG.md` (move the Unreleased items into it), set the same `version` in `Cargo.toml`, merge, then push the tag `vx.y.z`. The release workflow builds the DMG on the self-hosted runner and uses that changelog section as the release notes; it stops if the section is missing.
 
 ## Tests
 
