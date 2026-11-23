@@ -185,7 +185,6 @@ src/
   sample.rs     made-up scan results for README screenshots (debug builds)
 assets/icons/   SVG line icons used in the UI
 assets/icon/    app icon source: make_icon.py → AppIcon.svg (rendered into AppIcon.icns)
-archive/tauri/  the previous Tauri version, kept for reference
 ```
 
 ## Notes
