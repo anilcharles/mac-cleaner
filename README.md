@@ -144,6 +144,15 @@ cargo run --release
 ./scripts/screenshots.sh   # regenerate docs/screenshots/ from sample data
 ```
 
+## Releases
+
+Pushing a tag that matches the `Cargo.toml` version (`git tag v1.0.0 && git push origin v1.0.0`) builds a DMG on a self-hosted runner on this Mac and attaches it to a GitHub Release. The runner lives in `~/actions-runner`, outside the repo.
+
+```sh
+./scripts/runner.sh status   # is the runner running, and does GitHub see it online
+./scripts/runner.sh start    # also: stop, restart, logs
+```
+
 ## Tests
 
 ```sh
