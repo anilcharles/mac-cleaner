@@ -1,6 +1,6 @@
 [package]
 name = "mac-cleaner"
-version = "0.3.0"
+version = "1.0.0"
 description = "A careful, good-looking cleaner for macOS"
 edition = "2021"
 
