@@ -2,7 +2,7 @@
 
 A native macOS cleaner written in Rust with [GPUI](https://crates.io/crates/gpui), the GPU-drawn UI framework from the Zed editor. It finds caches, logs, developer leftovers and large files, lets you open each folder to see what's inside, and only acts after you confirm every path.
 
-Version 1.0.0. Needs macOS 12 or later, and a Rust toolchain to build.
+Version 1.0.0. Needs macOS 12 or later. Prebuilt downloads are for Apple Silicon (see [Install](#install)); building from source needs a Rust toolchain.
 
 Created with [Claude Code](https://claude.com/claude-code), Anthropic's AI coding tool. See [Is it safe to run?](#is-it-safe-to-run) for what has been checked.
 
@@ -129,6 +129,21 @@ To repeat the checks: `cargo test` and `cargo install cargo-audit && cargo audit
 How it works: every size in the UI is written as `pt(n)` (defined in `theme.rs`), which stores it in rem units. Changing the zoom changes the window's rem size, and everything follows. New UI code must use `pt()`; real pixels (`gpui::px`) are only for values tied to the mouse or the window, multiplied by the zoom.
 
 **Saved between launches.** The theme, the zoom level, the Large Files size limit, the ignore list, the last scan time and the running total of cleaned space are saved as plain text in `~/Library/Application Support/Mac Cleaner/settings.txt`. That folder is never scanned or cleaned.
+
+## Install
+
+1. Download `Mac-Cleaner-<version>-arm64.dmg` from the [Releases](https://github.com/anilcharles/mac-cleaner/releases) page. The `.sha256` file next to it lets you check the download: `shasum -a 256 -c Mac-Cleaner-<version>-arm64.dmg.sha256`.
+2. Open the DMG and drag **Mac Cleaner** onto the **Applications** shortcut.
+3. Open Mac Cleaner from Applications.
+
+**"Apple could not verify Mac Cleaner is free of malware".** The first time you open a copy downloaded in a web browser, macOS shows this warning. The app is ad-hoc signed but not notarized by Apple, and macOS checks for notarization on anything a browser downloads. Do not click **Move to Bin**; click **Done**, then either:
+
+- open **System Settings → Privacy & Security**, scroll to *"Mac Cleaner" was blocked*, and click **Open Anyway**; or
+- run `xattr -dr com.apple.quarantine "/Applications/Mac Cleaner.app"` in Terminal, then open the app again.
+
+You only need to do this once per downloaded copy. Copies built locally (`./scripts/install.sh`) or downloaded with `gh release download` are not marked by the browser and open without the warning. If you already clicked Move to Bin, drag **Mac Cleaner** from the Bin back to Applications and use one of the steps above.
+
+The warning will go away for good once releases are signed with an Apple Developer ID and notarized.
 
 ## Run
 
