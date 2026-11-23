@@ -10,22 +10,45 @@ Created with [Claude Code](https://claude.com/claude-code), Anthropic's AI codin
 
 These use made-up sample data, not a real Mac. Regenerate them with `./scripts/screenshots.sh`.
 
-| Light | Dark |
-|---|---|
-| ![Scan results in the light theme](docs/screenshots/results.png) | ![Scan results in the dark theme](docs/screenshots/results-dark.png) |
-
 **Scan results.** Categories on the left, the items of the open category on the right.
 
-| | |
-|---|---|
-| ![Welcome screen](docs/screenshots/welcome.png) | ![Scan in progress](docs/screenshots/scanning.png) |
-| **Welcome.** What will be scanned, and which categories need a review. | **Scanning.** Progress per category; a scan can be cancelled. |
-| ![An opened folder showing the folders and files inside](docs/screenshots/folder-tree.png) | ![Large Files & Folders](docs/screenshots/large-files.png) |
-| **Open any folder.** See what is inside and tick single items. | **Large Files & Folders.** Your own big files; never pre-selected. |
-| ![Search narrowing the list](docs/screenshots/search.png) | ![Right-click menu on a row](docs/screenshots/row-menu.png) |
-| **Search and filters.** Type to narrow the list, or filter by age. | **Right-click a row.** Finder, Quick Look, Copy Path and Always Ignore. |
-| ![Confirmation dialog listing every path](docs/screenshots/confirm.png) | ![Result screen](docs/screenshots/done.png) |
-| **Confirm.** Every path is listed before anything moves to the Trash. | **Result.** Space recovered, and anything that could not be moved. |
+![Scan results in the light theme](docs/screenshots/results.png)
+
+**Dark theme.** The same screen in dark mode; Auto follows the macOS setting.
+
+![Scan results in the dark theme](docs/screenshots/results-dark.png)
+
+**Welcome.** What will be scanned, and which categories need a review.
+
+![Welcome screen](docs/screenshots/welcome.png)
+
+**Scanning.** Progress per category; a scan can be cancelled.
+
+![Scan in progress](docs/screenshots/scanning.png)
+
+**Open any folder.** See what is inside and tick single items.
+
+![An opened folder showing the folders and files inside](docs/screenshots/folder-tree.png)
+
+**Large Files & Folders.** Your own big files; never pre-selected.
+
+![Large Files & Folders](docs/screenshots/large-files.png)
+
+**Search and filters.** Type to narrow the list, or filter by age.
+
+![Search narrowing the list](docs/screenshots/search.png)
+
+**Right-click a row.** Finder, Quick Look, Copy Path and Always Ignore.
+
+![Right-click menu on a row](docs/screenshots/row-menu.png)
+
+**Confirm.** Every path is listed before anything moves to the Trash.
+
+![Confirmation dialog listing every path](docs/screenshots/confirm.png)
+
+**Result.** Space recovered, and anything that could not be moved.
+
+![Result screen](docs/screenshots/done.png)
 
 Every picture is the same window at 100% zoom. The whole interface can also be scaled from 85% to 150%.
 
