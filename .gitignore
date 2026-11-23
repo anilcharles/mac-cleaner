@@ -7,6 +7,3 @@ archive/tauri/src-tauri/gen/
 .env
 .env.*
 !.env.example
-
-# Screenshots (regenerate with scripts/screenshots.sh)
-docs/screenshots/
