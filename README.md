@@ -76,9 +76,9 @@ For anyone asking whether this contains a virus: all of the source is in this re
   - Hardening done at the same time: the home folder is read from the user database, not from `$HOME`; `open` is called by its full path; the snapshot walkthrough exists only in debug builds.
 - **Dependency audit.** `cargo audit` 0.23.0 checked all 724 packages in `Cargo.lock` against the RustSec advisory database: **no known vulnerabilities**. It listed 14 "unmaintained" notices, all for packages pulled in by GPUI.
 
-- **Antivirus scan.** A build of version 0.3.0 made from this source was uploaded to [VirusTotal](https://www.virustotal.com), which runs a file past the engines of many antivirus vendors. **No engine flagged it:**
-  - the program file: 0 malicious, 0 suspicious, 62 engines found nothing, 11 do not handle this file type ([report](https://www.virustotal.com/gui/file/bbe51fb73dcba522a90fccae6635a669c281227d9522f90f264baa04846fef63));
-  - the zipped app: 0 malicious, 0 suspicious, 56 engines found nothing, 8 timed out or failed, 9 do not handle this file type ([report](https://www.virustotal.com/gui/file/5e05cfb3a6c0bf8587c3ab3a973bea78f69e658e7ad6118423aeff81fd798715)).
+- **Antivirus scan.** The version 1.0.0 release download was uploaded to [VirusTotal](https://www.virustotal.com) on 23 November 2026. VirusTotal runs a file past the engines of many antivirus vendors. **No engine flagged it:**
+  - the program file inside the app: 0 malicious, 0 suspicious, 62 engines found nothing, 11 do not handle this file type ([report](https://www.virustotal.com/gui/file/39d98649fdb27db33bda7b1880feb487e2f446df88a4a711aef5f1b1e0f9c8b4));
+  - the DMG from the [v1.0.0 release](https://github.com/anilcharles/mac-cleaner/releases/tag/v1.0.0): 0 malicious, 0 suspicious, 60 engines found nothing, 1 failed, 12 do not handle this file type ([report](https://www.virustotal.com/gui/file/736c031ff62050b6b27649d4e1b9a25e81f91eb1e0fc762f604166c05f5b7a2c)).
 
 **What this does not cover**
 
