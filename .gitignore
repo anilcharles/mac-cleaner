@@ -1,0 +1,12 @@
+target/
+archive/tauri/src-tauri/target/
+archive/tauri/src-tauri/gen/
+.DS_Store
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Screenshots (regenerate with scripts/screenshots.sh)
+docs/screenshots/
