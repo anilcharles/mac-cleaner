@@ -489,16 +489,43 @@ pub fn scan_all(ignored: &HashSet<String>, ctl: &ScanCtl) -> Vec<Category> {
         .collect()
 }
 
-/// (total, available) bytes of the volume that holds the home folder.
-pub fn disk_space() -> Option<(u64, u64)> {
+/// Storage of the volume that holds the home folder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiskSpace {
+    /// The volume's name, as Finder shows it ("Macintosh HD").
+    pub name: String,
+    pub total: u64,
+    /// What Finder and System Settings call available, including space macOS frees on demand.
+    pub free: u64,
+}
+
+impl DiskSpace {
+    pub fn used(&self) -> u64 {
+        self.total.saturating_sub(self.free)
+    }
+}
+
+/// Reads the home volume's storage. Asks macOS first, so the numbers match Finder; falls back to
+/// `statfs`, which does not count purgeable space.
+pub fn disk_space() -> Option<DiskSpace> {
+    let home = home_dir();
+    if let Some((name, total, free)) = crate::native::volume_space(&home) {
+        if total > 0 {
+            return Some(DiskSpace { name, total, free: free.min(total) });
+        }
+    }
     use std::os::unix::ffi::OsStrExt;
-    let path = std::ffi::CString::new(home_dir().as_os_str().as_bytes()).ok()?;
+    let path = std::ffi::CString::new(home.as_os_str().as_bytes()).ok()?;
     let mut stat: libc::statfs = unsafe { std::mem::zeroed() };
     if unsafe { libc::statfs(path.as_ptr(), &mut stat) } != 0 {
         return None;
     }
     let block = stat.f_bsize as u64;
-    Some((stat.f_blocks as u64 * block, stat.f_bavail as u64 * block))
+    Some(DiskSpace {
+        name: "Macintosh HD".into(),
+        total: stat.f_blocks as u64 * block,
+        free: stat.f_bavail as u64 * block,
+    })
 }
 
 /// One string value from a property list (binary or XML), read with the system's `plutil`.
@@ -974,6 +1001,17 @@ fn friendly_error(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn disk_space_is_read_and_consistent() {
+        let t = std::time::Instant::now();
+        let d = disk_space().expect("home volume storage");
+        let ms = t.elapsed().as_millis();
+        assert!(ms < 2_000, "reading storage took {ms} ms");
+        assert!(d.total > 0);
+        assert!(d.free <= d.total);
+        assert!(!d.name.is_empty());
+    }
+
     use super::*;
 
     #[test]

@@ -101,6 +101,7 @@ To repeat the checks: `cargo test` and `cargo install cargo-audit && cargo audit
 - A scan can be cancelled, and shows how many items it has checked.
 - **After a clean,** the result screen shows the space recovered and lists anything that could not be moved, with the reason. If macOS protected an item, a button opens the Full Disk Access settings.
 - **The welcome screen** shows free disk space, when the last scan ran and how much has been cleaned so far.
+- **Storage** for your Mac (name, used-space bar and space available) sits at the bottom of the results sidebar. It is read again every 3 seconds, so emptying the Trash or a big download shows up without a rescan. "Available" matches Finder and System Settings: it includes space macOS frees on demand.
 
 ## Menus
 

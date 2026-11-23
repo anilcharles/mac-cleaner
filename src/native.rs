@@ -70,3 +70,49 @@ pub fn screen_visible_size() -> Option<(f32, f32)> {
         Some((frame.size.width as f32, frame.size.height as f32))
     }
 }
+
+/// Name, total and available bytes of the volume that holds `path`, as Finder and System Settings
+/// report them. "Available" includes space macOS frees on demand (purgeable files, local snapshots),
+/// so it can be higher than what `statfs` reports. Safe to call from any thread.
+pub fn volume_space(path: &std::path::Path) -> Option<(String, u64, u64)> {
+    use objc::runtime::{BOOL, NO};
+    use std::os::unix::ffi::OsStrExt;
+
+    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    unsafe {
+        // Objects below are autoreleased; this pool frees them even off the main thread.
+        let pool: *mut Object = msg_send![class!(NSAutoreleasePool), new];
+        let ns_str = |s: &std::ffi::CStr| -> *mut Object { msg_send![class!(NSString), stringWithUTF8String: s.as_ptr()] };
+        let ns_path = ns_str(&c_path);
+        // A new NSURL each time, so no cached value from an earlier call is returned.
+        let url: *mut Object = if ns_path.is_null() { std::ptr::null_mut() } else { msg_send![class!(NSURL), fileURLWithPath: ns_path] };
+        let value = |key: &std::ffi::CStr| -> *mut Object {
+            if url.is_null() {
+                return std::ptr::null_mut();
+            }
+            let mut out: *mut Object = std::ptr::null_mut();
+            let mut err: *mut Object = std::ptr::null_mut();
+            let ok: BOOL = msg_send![url, getResourceValue: &mut out forKey: ns_str(key) error: &mut err];
+            if ok == NO { std::ptr::null_mut() } else { out }
+        };
+        let number = |key: &std::ffi::CStr| -> Option<u64> {
+            let n = value(key);
+            if n.is_null() {
+                return None;
+            }
+            let v: i64 = msg_send![n, longLongValue];
+            u64::try_from(v).ok()
+        };
+        let total = number(c"NSURLVolumeTotalCapacityKey");
+        let available = number(c"NSURLVolumeAvailableCapacityForImportantUsageKey");
+        let name_obj = value(c"NSURLVolumeLocalizedNameKey");
+        let name = if name_obj.is_null() {
+            None
+        } else {
+            let utf8: *const std::os::raw::c_char = msg_send![name_obj, UTF8String];
+            (!utf8.is_null()).then(|| std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned())
+        };
+        let _: () = msg_send![pool, drain];
+        Some((name.unwrap_or_else(|| "Macintosh HD".into()), total?, available?))
+    }
+}
