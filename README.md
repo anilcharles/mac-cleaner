@@ -2,7 +2,7 @@
 
 A native macOS cleaner written in Rust with [GPUI](https://crates.io/crates/gpui), the GPU-drawn UI framework from the Zed editor. It finds caches, logs, developer leftovers and large files, lets you open each folder to see what's inside, and only acts after you confirm every path.
 
-Version 1.0.0. Needs macOS 12 or later on Apple Silicon. Building from source needs a Rust toolchain. To install a prebuilt copy, see [Install](#install).
+Version 1.0.0. Needs macOS 12 or later. Prebuilt downloads are for Apple Silicon (see [Install](#install)); building from source needs a Rust toolchain.
 
 Created with [Claude Code](https://claude.com/claude-code), Anthropic's AI coding tool. See [Is it safe to run?](#is-it-safe-to-run) for what has been checked.
 
