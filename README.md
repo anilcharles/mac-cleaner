@@ -137,7 +137,7 @@ How it works: every size in the UI is written as `pt(n)` (defined in `theme.rs`)
 2. Open the DMG and drag **Mac Cleaner** onto the **Applications** shortcut.
 3. Open Mac Cleaner from Applications.
 
-What changed in each version is in [CHANGELOG.md](CHANGELOG.md), and the same notes appear on each release.
+What changed in each version is listed in the notes of each [release](https://github.com/anilcharles/mac-cleaner/releases).
 
 **"Apple could not verify Mac Cleaner is free of malware".** The first time you open a copy downloaded in a web browser, macOS shows this warning. The app is ad-hoc signed but not notarized by Apple, and macOS checks for notarization on anything a browser downloads. Do not click **Move to Bin**; click **Done**, then either:
 
@@ -162,7 +162,7 @@ cargo run --release
 ./scripts/screenshots.sh   # regenerate docs/screenshots/ from sample data
 ```
 
-**Releasing** is automated with [release-please](https://github.com/googleapis/release-please). Pull requests are squash-merged and their titles follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:` for a new feature, `fix:` for a bug fix, and `docs:`, `ci:`, `chore:`, `refactor:` or `test:` for everything else (a CI check enforces this). After `feat:` or `fix:` changes are merged, release-please opens a `chore: release x.y.z` pull request that bumps the version and adds those changes to `CHANGELOG.md`. Merging it tags `vx.y.z`, publishes the GitHub Release with the same notes, and the self-hosted runner builds the DMG and attaches it.
+**Releasing** is automated with [release-please](https://github.com/googleapis/release-please). Pull requests are squash-merged and their titles follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:` for a new feature, `fix:` for a bug fix, and `docs:`, `ci:`, `chore:`, `refactor:` or `test:` for everything else (a CI check enforces this). After `feat:` or `fix:` changes are merged, release-please opens a `chore: release x.y.z` pull request that bumps the version and lists those changes as the release notes. Merging it tags `vx.y.z`, publishes the GitHub Release with those notes, and the self-hosted runner builds the DMG and attaches it.
 
 ## Tests
 

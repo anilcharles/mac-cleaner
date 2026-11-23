@@ -2,9 +2,10 @@
 #
 # 1. Every merge to main: release-please reads the new PR titles. If any is a `feat:` or `fix:`,
 #    it opens or updates a "chore: release x.y.z" PR that bumps Cargo.toml / Cargo.lock and
-#    adds the entries to CHANGELOG.md. `docs:`, `ci:`, `chore:` and the like are left out.
+#    lists the entries as release notes in its description. `docs:`, `ci:`, `chore:` and the
+#    like are left out. There is no CHANGELOG.md; the GitHub Releases are the changelog.
 # 2. Merging that release PR: release-please tags vx.y.z and creates the GitHub Release with the
-#    changelog entries as notes. Then this Mac (self-hosted runner) tests, builds the DMG and
+#    same notes. Then this Mac (self-hosted runner) tests, builds the DMG and
 #    attaches it to the release.
 name: Release
 
@@ -13,7 +14,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write # tags, releases, the changelog commit, DMG upload
+  contents: write # tags, releases, the version-bump commit, DMG upload
   pull-requests: write # the release PR
 
 concurrency:

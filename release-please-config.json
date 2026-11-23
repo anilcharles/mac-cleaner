@@ -7,7 +7,7 @@
       "component": "mac-cleaner",
       "include-component-in-tag": false,
       "include-v-in-tag": true,
-      "changelog-path": "CHANGELOG.md",
+      "skip-changelog": true,
       "pull-request-title-pattern": "chore: release ${version}",
       "changelog-sections": [
         { "type": "feat", "section": "Features" },
