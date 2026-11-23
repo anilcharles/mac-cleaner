@@ -1,6 +1,4 @@
 target/
-archive/tauri/src-tauri/target/
-archive/tauri/src-tauri/gen/
 .DS_Store
 
 # Secrets
