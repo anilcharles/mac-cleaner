@@ -32,18 +32,25 @@ jobs:
       - name: Build app bundle
         run: ./scripts/bundle.sh
 
-      - name: Zip app
+      - name: Build DMG
         run: |
-          ZIP="Mac-Cleaner-$VERSION-arm64.zip"
-          ditto -c -k --keepParent "target/release/Mac Cleaner.app" "$ZIP"
-          shasum -a 256 "$ZIP" > "$ZIP.sha256"
-          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+          DMG="Mac-Cleaner-$VERSION-arm64.dmg"
+          STAGE="$RUNNER_TEMP/dmg"
+          rm -rf "$STAGE" "$DMG"
+          mkdir -p "$STAGE"
+          ditto "target/release/Mac Cleaner.app" "$STAGE/Mac Cleaner.app"
+          ln -s /Applications "$STAGE/Applications" # drag-to-install target
+          hdiutil create -volname "Mac Cleaner $VERSION" -srcfolder "$STAGE" \
+            -fs HFS+ -format UDZO -ov "$DMG"
+          rm -rf "$STAGE"
+          shasum -a 256 "$DMG" > "$DMG.sha256"
+          echo "DMG=$DMG" >> "$GITHUB_ENV"
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "$ZIP" "$ZIP.sha256" \
+          gh release create "$GITHUB_REF_NAME" "$DMG" "$DMG.sha256" \
             --title "Mac Cleaner $VERSION" \
             --generate-notes \
             --verify-tag
