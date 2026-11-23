@@ -1,7 +1,7 @@
 //! The GPUI view. Mirrors the original HTML/CSS design screen by screen.
 
 use crate::app::{ago, bytes, kind, plural, Age, Check, Children, Modal, Model, NoteKind, Row, Screen, SortKey};
-use crate::scanner::{self, Risk, ScanCtl};
+use crate::scanner::{self, DiskSpace, Risk, ScanCtl};
 use crate::settings::{Settings, ThemeMode, LARGE_MIN_CHOICES};
 use crate::theme::*;
 use gpui::{
@@ -63,8 +63,9 @@ pub struct CleanerApp {
     /// Typing goes to the search box.
     search_on: bool,
     popup: Option<Popup>,
-    /// (total, available) bytes of the disk.
-    disk: Option<(u64, u64)>,
+    /// Storage of the home volume, re-read every few seconds so outside changes show up
+    /// (emptying the Trash, a big download).
+    disk: Option<DiskSpace>,
     /// The Kind column is dropped in a narrow window.
     show_kind: bool,
     app_icon: Arc<gpui::Image>,
@@ -82,6 +83,15 @@ impl CleanerApp {
         let appearance = window.observe_window_appearance(move |_, cx| {
             entity.update(cx, |_, cx| cx.notify()).ok();
         });
+        // Keep the storage numbers current while the app is open.
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(DISK_REFRESH).await;
+            let disk = cx.background_executor().spawn(async { scanner::disk_space() }).await;
+            if this.update(cx, |this, cx| this.set_disk(disk, cx)).is_err() {
+                break; // the window is gone
+            }
+        })
+        .detach();
         let settings = Settings::load();
         scanner::set_large_file_min(settings.large_min);
         let zoom = crate::settings::zoom_override().unwrap_or(settings.zoom);
@@ -113,6 +123,19 @@ impl CleanerApp {
     /* ================================================================
        Actions
        ================================================================ */
+
+    /// Stores a fresh storage reading, and repaints only when what is shown would change.
+    fn set_disk(&mut self, disk: Option<DiskSpace>, cx: &mut Context<Self>) {
+        #[cfg(debug_assertions)]
+        if self.sample {
+            return; // the pictures keep their made-up disk
+        }
+        let shown = |d: &Option<DiskSpace>| d.as_ref().map(|d| (d.name.clone(), bytes(d.total), bytes(d.free)));
+        if shown(&disk) != shown(&self.disk) {
+            self.disk = disk;
+            cx.notify();
+        }
+    }
 
     fn start_scan(&mut self, cx: &mut Context<Self>) {
         self.scan.cancel.store(true, Ordering::Relaxed); // stops a scan that is still running
@@ -566,7 +589,7 @@ impl CleanerApp {
             self.settings.ignored.clear();
             self.settings.last_scan = None;
             self.settings.freed_total = 0;
-            self.disk = Some((500_000_000_000, 212_000_000_000));
+            self.disk = Some(DiskSpace { name: "Macintosh HD".into(), total: 500_000_000_000, free: 212_000_000_000 });
         }
         let snap = move |name: &str| {
             let path = format!("{dir}/{name}.png");
@@ -802,8 +825,8 @@ impl CleanerApp {
 
         // Disk space and a little history, when there is any.
         let mut facts = vec![];
-        if let Some((total, free)) = self.disk {
-            facts.push(format!("{} available of {}", bytes(free), bytes(total)));
+        if let Some(d) = &self.disk {
+            facts.push(format!("{} available of {}", bytes(d.free), bytes(d.total)));
         }
         if let Some(when) = self.settings.last_scan {
             facts.push(format!("Last scan: {}", ago(Some(when)).to_lowercase()));
@@ -1105,6 +1128,7 @@ impl CleanerApp {
                         ))),
                 )
             })
+            .when_some(self.disk.as_ref(), |el, d| el.child(storage(d, t)))
     }
 
     fn detail(&mut self, t: &Theme, cx: &mut Context<Self>) -> Div {
@@ -1576,8 +1600,8 @@ impl CleanerApp {
         let last = r.failures.len().saturating_sub(1);
         let needs_access = r.failures.iter().any(|f| f.reason.contains("Full Disk Access"));
         let mut facts = vec![];
-        if let Some((total, free)) = self.disk {
-            facts.push(format!("{} available of {}", bytes(free), bytes(total)));
+        if let Some(d) = &self.disk {
+            facts.push(format!("{} available of {}", bytes(d.free), bytes(d.total)));
         }
         if self.settings.cleans > 1 {
             facts.push(format!("{} cleaned so far", bytes(self.settings.freed_total)));
@@ -2297,6 +2321,50 @@ fn gradient_h(left: u32, right: Hsla) -> gpui::Background {
     linear_gradient(90., linear_color_stop(rgb(left), 0.), linear_color_stop(right, 1.))
 }
 
+/// The Mac's storage: volume name, a used-space bar and what is still available.
+fn storage(d: &DiskSpace, t: &Theme) -> Div {
+    let used = if d.total > 0 { (d.used() as f32 / d.total as f32).clamp(0., 1.) } else { 0. };
+    // Nearly full disks are worth a warning colour.
+    let fill = if used >= 0.9 { t.warning } else { t.text_3 };
+    div()
+        .mt(pt(10.))
+        .mx(pt(4.))
+        .px(pt(12.))
+        .pt(pt(12.))
+        .border_t_1()
+        .border_color(t.border)
+        .flex()
+        .items_center()
+        .gap(pt(12.))
+        .child(icon("drive", 18., t.text_2))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .flex()
+                        .items_baseline()
+                        .gap(pt(8.))
+                        .child(div().flex_1().min_w_0().ellipsis().text_size(pt(12.)).font_weight(FontWeight::SEMIBOLD).child(d.name.clone()))
+                        .child(div().text_size(pt(11.5)).text_color(t.text_3).child(format!("{} total", bytes(d.total)))),
+                )
+                .child(
+                    div()
+                        .h(pt(4.))
+                        .mt(pt(6.))
+                        .mb(pt(5.))
+                        .rounded(pt(2.))
+                        .bg(t.border)
+                        .overflow_hidden()
+                        .child(div().h_full().w(relative(used)).rounded(pt(2.)).bg(fill)),
+                )
+                .child(div().text_size(pt(11.5)).text_color(t.text_2).child(format!("{} available", bytes(d.free)))),
+        )
+}
+
 fn tile(cat_id: &str, icon_name: &str, size: f32) -> Div {
     let (top, bottom) = if cat_id == "muted" { (0xb5b5bb, 0x8e8e93) } else { tile_colors(cat_id) };
     div()
@@ -2439,6 +2507,8 @@ fn small_shadow(t: &Theme) -> Vec<BoxShadow> {
 
 /// The window's rem size at 100% zoom; `pt()` in theme.rs divides by the same number.
 const BASE_REM: f32 = 16.;
+/// How often the storage numbers are read again.
+const DISK_REFRESH: Duration = Duration::from_secs(3);
 
 /// A window size given in points at 100% zoom, scaled and kept inside the screen.
 pub fn window_size(points: (f32, f32), zoom: f32) -> Size<Pixels> {
