@@ -1,0 +1,49 @@
+# Builds Mac Cleaner on your own Mac (self-hosted runner) and publishes a GitHub Release.
+# Trigger: push a tag that matches the version in Cargo.toml, e.g.
+#   git tag v0.3.0 && git push origin v0.3.0
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # needed to create the release and upload the zip
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: [self-hosted, macOS, ARM64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches Cargo.toml version
+        run: |
+          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $VERSION"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Build app bundle
+        run: ./scripts/bundle.sh
+
+      - name: Zip app
+        run: |
+          ZIP="Mac-Cleaner-$VERSION-arm64.zip"
+          ditto -c -k --keepParent "target/release/Mac Cleaner.app" "$ZIP"
+          shasum -a 256 "$ZIP" > "$ZIP.sha256"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$ZIP" "$ZIP.sha256" \
+            --title "Mac Cleaner $VERSION" \
+            --generate-notes \
+            --verify-tag
