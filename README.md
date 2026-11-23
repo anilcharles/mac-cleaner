@@ -162,7 +162,7 @@ cargo run --release
 ./scripts/screenshots.sh   # regenerate docs/screenshots/ from sample data
 ```
 
-To release: add a `## [x.y.z] - date` section to `CHANGELOG.md` (move the Unreleased items into it), set the same `version` in `Cargo.toml`, merge, then push the tag `vx.y.z`. The release workflow builds the DMG on the self-hosted runner and uses that changelog section as the release notes; it stops if the section is missing.
+**Releasing** is automated with [release-please](https://github.com/googleapis/release-please). Pull requests are squash-merged and their titles follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:` for a new feature, `fix:` for a bug fix, and `docs:`, `ci:`, `chore:`, `refactor:` or `test:` for everything else (a CI check enforces this). After `feat:` or `fix:` changes are merged, release-please opens a `chore: release x.y.z` pull request that bumps the version and adds those changes to `CHANGELOG.md`. Merging it tags `vx.y.z`, publishes the GitHub Release with the same notes, and the self-hosted runner builds the DMG and attaches it.
 
 ## Tests
 
