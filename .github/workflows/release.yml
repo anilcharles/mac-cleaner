@@ -1,43 +1,66 @@
-# Builds Mac Cleaner on your own Mac (self-hosted runner) and publishes a GitHub Release.
-# Trigger: push a tag that matches the version in Cargo.toml, e.g.
-#   git tag v1.1.0 && git push origin v1.1.0
-# The release notes are that version's section of CHANGELOG.md, which must exist.
+# Releases are driven by release-please (https://github.com/googleapis/release-please).
+#
+# 1. Every merge to main: release-please reads the new PR titles. If any is a `feat:` or `fix:`,
+#    it opens or updates a "chore: release x.y.z" PR that bumps Cargo.toml / Cargo.lock and
+#    adds the entries to CHANGELOG.md. `docs:`, `ci:`, `chore:` and the like are left out.
+# 2. Merging that release PR: release-please tags vx.y.z and creates the GitHub Release with the
+#    changelog entries as notes. Then this Mac (self-hosted runner) tests, builds the DMG and
+#    attaches it to the release.
 name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
 
 permissions:
-  contents: write # needed to create the release and upload the DMG
+  contents: write # tags, releases, the changelog commit, DMG upload
+  pull-requests: write # the release PR
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
-  release:
+  release-please:
+    # Only bookkeeping through the GitHub API, so it runs on GitHub's machines and keeps the
+    # release PR up to date even while this Mac is off.
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+      version: ${{ steps.rp.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
     runs-on: [self-hosted, macOS, ARM64]
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+      VERSION: ${{ needs.release-please.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Check tag matches Cargo.toml version
-        run: |
-          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $VERSION"
-            exit 1
-          fi
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-
-      - name: Release notes from CHANGELOG.md
-        run: ./scripts/changelog.sh "$VERSION" > "$RUNNER_TEMP/notes.md"
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
       - name: Tests
         run: cargo test --locked
 
       - name: Build app bundle
         run: ./scripts/bundle.sh
+
+      - name: Check app version
+        run: |
+          APP_VERSION=$(defaults read "$PWD/target/release/Mac Cleaner.app/Contents/Info.plist" CFBundleShortVersionString)
+          if [ "$APP_VERSION" != "$VERSION" ]; then
+            echo "::error::App says $APP_VERSION but the release is $VERSION"
+            exit 1
+          fi
 
       - name: Build DMG
         run: |
@@ -53,11 +76,7 @@ jobs:
           shasum -a 256 "$DMG" > "$DMG.sha256"
           echo "DMG=$DMG" >> "$GITHUB_ENV"
 
-      - name: Create GitHub Release
+      - name: Attach DMG to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" "$DMG" "$DMG.sha256" \
-            --title "Mac Cleaner $VERSION" \
-            --notes-file "$RUNNER_TEMP/notes.md" \
-            --verify-tag
+        run: gh release upload "$TAG" "$DMG" "$DMG.sha256" --clobber
