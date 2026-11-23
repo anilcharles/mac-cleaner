@@ -1,5 +1,5 @@
 # PR titles become the commit message on main (squash merge), and release-please builds the
-# changelog from them. This check fails a PR whose title is not a Conventional Commit, e.g.
+# release notes from them. This check fails a PR whose title is not a Conventional Commit, e.g.
 #   feat: show storage in the sidebar      → listed under Features, minor version bump
 #   fix: scan no longer stalls on symlinks → listed under Bug Fixes, patch version bump
 #   docs: / ci: / chore: / refactor: / test: → not listed, no release
