@@ -102,10 +102,11 @@ For anyone asking whether this contains a virus: all of the source is in this re
 
 **What the app does** (each point can be confirmed in `src/`)
 
-- **No network use.** The app's own code has no networking, and it sends nothing anywhere. Its UI framework (GPUI) includes an HTTP client that the app never calls. The running app held no network connections when checked on 2026-11-23.
+- **Network use is limited to updates.** The app talks to GitHub only, and only to look for and download a new version (see [Updates](#updates)). It sends nothing about your Mac or your files. Turn off "Check for updates automatically" in About Mac Cleaner and it connects only when you choose Check for Updates.
+- **Updates are signed.** A downloaded update is installed only if its signature matches the release key built into the app, and the signature names that exact version. Anyone who could change the files on the GitHub release page still couldn't get the app to install something else.
 - **No admin rights.** It never asks for a password, and installs no helper, background process or login item.
-- **It runs three Apple tools, by full path:** `/usr/bin/open` (Finder, the Trash, System Settings), `/usr/bin/qlmanage` (Quick Look) and `/usr/bin/plutil` (to read simulator names).
-- **It writes one file:** its own settings. Everything it removes is moved to the Trash, never deleted.
+- **It runs Apple tools, by full path:** `/usr/bin/open` (Finder, the Trash, System Settings), `/usr/bin/qlmanage` (Quick Look) and `/usr/bin/plutil` (to read simulator names and an update's version). For updates it also runs `/usr/bin/curl` (download), `/usr/bin/hdiutil` (open the DMG), `/usr/bin/ditto` (copy the app) and a short `/bin/sh` script that swaps the app once it has quit.
+- **It writes its own settings,** and while updating, a staging folder next to them. Everything it removes is moved to the Trash, never deleted.
 
 **Checks run on 2026-11-23**
 
@@ -125,7 +126,7 @@ For anyone asking whether this contains a virus: all of the source is in this re
 - This is not an independent audit or a penetration test. The review was done by Claude, the same AI tool that wrote the code, by reading the source; nobody outside the project has reviewed it.
 - A VirusTotal result covers that one build on that day. It is not proof that the app is harmless, and it does not carry over to a later version or to a copy you build yourself, which will have a different fingerprint.
 - Cloudflare did not audit, scan, test or endorse this app. The security-audit skill is a published set of review instructions that Claude followed; no Cloudflare service was run.
-- Code added after that review has not been reviewed for security: zoom, search and filters, popup menus, the About dialog, the ignore list, Project Build Folders, Simulator Devices and Quick Look.
+- Code added after that review has not been reviewed for security: zoom, search and filters, popup menus, the About dialog, the ignore list, Project Build Folders, Simulator Devices, Quick Look and the updater.
 - A very small timing window remains between the last check and the move to the Trash, and the home folder itself is not checked for being a symlink.
 - The app is ad-hoc signed, not notarized by Apple, so macOS warns when a downloaded copy is opened. A prebuilt copy from someone else cannot be shown to match this source; build it yourself with `./scripts/bundle.sh`.
 
@@ -147,7 +148,7 @@ To repeat the checks: `cargo test` and `cargo install cargo-audit && cargo audit
 
 | Menu | Items |
 |---|---|
-| Mac Cleaner | About Mac Cleaner, Quit |
+| Mac Cleaner | About Mac Cleaner, Check for Updates…, Quit |
 | File | Scan Again, Review & Clean…, Quick Look, Close Window |
 | Edit | Select All, Deselect All, Find |
 | View | Light, Dark, Match System, Zoom In, Zoom Out, Actual Size |
@@ -169,15 +170,61 @@ To repeat the checks: `cargo test` and `cargo install cargo-audit && cargo audit
 
 How it works: every size in the UI is written as `pt(n)` (defined in `theme.rs`), which stores it in rem units. Changing the zoom changes the window's rem size, and everything follows. New UI code must use `pt()`; real pixels (`gpui::px`) are only for values tied to the mouse or the window, multiplied by the zoom.
 
-**Saved between launches.** The theme, the zoom level, the Large Files size limit, the ignore list, the last scan time and the running total of cleaned space are saved as plain text in `~/Library/Application Support/Mac Cleaner/settings.txt`. That folder is never scanned or cleaned.
+**Saved between launches.** The theme, the zoom level, the Large Files size limit, the ignore list, the last scan time, the running total of cleaned space and whether to check for updates automatically are saved as plain text in `~/Library/Application Support/Mac Cleaner/settings.txt`. That folder is never scanned or cleaned.
 
 ## Install
+
+**The quick way.** Open **Terminal** (press ⌘Space, type `Terminal`, press Return), paste this and press Return:
+
+```sh
+/bin/sh -c 'set -e; cd "$(mktemp -d)"
+V=$(curl -fsSL https://api.github.com/repos/anilcharles/mac-cleaner/releases/latest | sed -n "s/.*\"tag_name\": *\"v\([^\"]*\)\".*/\1/p")
+DMG="Mac-Cleaner-$V-arm64.dmg"; URL="https://github.com/anilcharles/mac-cleaner/releases/download/v$V"
+echo "Downloading Mac Cleaner $V…"
+curl -fsSLO "$URL/$DMG"; curl -fsSLO "$URL/$DMG.sha256"; shasum -a 256 -c "$DMG.sha256"
+hdiutil attach -nobrowse -quiet -mountpoint mnt "$DMG"
+osascript -e "quit app \"Mac Cleaner\"" 2>/dev/null || true
+rm -rf "/Applications/Mac Cleaner.app"; ditto "mnt/Mac Cleaner.app" "/Applications/Mac Cleaner.app"
+hdiutil detach -quiet mnt; open "/Applications/Mac Cleaner.app"; echo "Mac Cleaner $V is installed."'
+```
+
+It downloads the latest release, checks it against its `.sha256`, copies the app into Applications (replacing an older copy) and opens it. Downloaded this way, macOS doesn't show the "Apple could not verify" warning below. It works the same in any shell.
+
+**Or ask an AI assistant.** Paste this into Claude, ChatGPT or another assistant. One that can run commands on your Mac (such as Claude Code) can do the install for you. A chat-only one walks you through it step by step.
+
+```text
+Help me install the Mac app "Mac Cleaner" from its GitHub releases:
+https://github.com/anilcharles/mac-cleaner/releases/latest
+
+1. Download only from that repository. Get Mac-Cleaner-<version>-arm64.dmg and its .sha256 file from the latest release.
+2. Check the download with: shasum -a 256 -c Mac-Cleaner-<version>-arm64.dmg.sha256
+   Stop and tell me if the check fails.
+3. Quit Mac Cleaner if it is running, then copy "Mac Cleaner.app" from the DMG into /Applications, replacing any older copy.
+4. Open the app. If macOS says "Apple could not verify Mac Cleaner is free of malware", don't move it to the Bin.
+   Clear the quarantine flag on this one app only: xattr -dr com.apple.quarantine "/Applications/Mac Cleaner.app"
+   Never turn off Gatekeeper for the whole Mac.
+
+The app needs a Mac with Apple silicon (M1 or later). If you can run commands on my Mac, do these steps yourself and tell me what you did. If you can't, walk me through them one at a time in Terminal.
+```
+
+**Or by hand:**
 
 1. Download `Mac-Cleaner-<version>-arm64.dmg` from the [Releases](https://github.com/anilcharles/mac-cleaner/releases) page. The `.sha256` file next to it lets you check the download: `shasum -a 256 -c Mac-Cleaner-<version>-arm64.dmg.sha256`.
 2. Open the DMG and drag **Mac Cleaner** onto the **Applications** shortcut.
 3. Open Mac Cleaner from Applications.
 
 What changed in each version is listed in the notes of each [release](https://github.com/anilcharles/mac-cleaner/releases).
+
+### Updates
+
+From version 1.3.0, Mac Cleaner keeps itself up to date. (Versions 1.2.0 and earlier have to be updated by hand, once.)
+
+- A few seconds after launch, and once a day while it stays open, the app asks GitHub for the latest release. When there is a newer one, an **Update Available** button appears in the top-right corner. Nothing is downloaded until you click it.
+- The button opens a dialog with the release notes. **Update Now** downloads the DMG with a progress bar, checks its signature, quits, swaps the app in Applications and opens the new version. **Later** closes the dialog; the button stays.
+- **Check for Updates…** in the Mac Cleaner menu, or the button in About Mac Cleaner, checks right away. About Mac Cleaner also has the **Check for updates automatically** switch.
+- If anything goes wrong (no connection, a bad signature, an app folder it can't write to), the dialog says so and the installed app is left as it was.
+
+How releases are signed: CI signs each DMG with [minisign](https://jedisct1.github.io/minisign/) and uploads the signature as `Mac-Cleaner-<version>-arm64.dmg.minisig`. Its trusted comment is the DMG's file name, so a signature from an older release can't be passed off as a newer one. The public key is in `src/updater.rs`; the secret key is the `MINISIGN_SECRET_KEY` repository secret. To check a download by hand: `minisign -Vm Mac-Cleaner-<version>-arm64.dmg -P RWQY3Ut882lI3/1xnXKTU/0Z74Iv8BV6izJOrYJ9F2irRv6MCb0xT5k4`.
 
 **"Apple could not verify Mac Cleaner is free of malware".** The first time you open a copy downloaded in a web browser, macOS shows this warning. The app is ad-hoc signed but not notarized by Apple, and macOS checks for notarization on anything a browser downloads. Do not click **Move to Bin**; click **Done**, then either:
 
@@ -241,7 +288,8 @@ src/
   apps.rs       installed apps, their support files, leftovers of deleted apps
   duplicates.rs identical-file search and the byte-by-byte recheck before a move
   theme.rs      light/dark palette, layout metrics, zoom levels and the pt() size unit
-  settings.rs   saved choices: theme, zoom, size limit, ignore list, history
+  settings.rs   saved choices: theme, zoom, size limit, ignore list, history, update checks
+  updater.rs    update check, download, signature check and the swap into Applications
   native.rs     AppKit calls GPUI does not expose (minimum window size, usable screen size)
   snapshot.rs   developer-only self-capture for UI checks (debug builds)
   sample.rs     made-up scan results for README screenshots (debug builds)

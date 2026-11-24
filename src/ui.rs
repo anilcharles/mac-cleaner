@@ -4,6 +4,7 @@ use crate::app::{ago, bytes, kind, plural, Age, Check, Children, Modal, Model, N
 use crate::scanner::{self, DiskSpace, Risk, ScanCtl};
 use crate::settings::{Settings, ThemeMode, LARGE_MIN_CHOICES};
 use crate::theme::*;
+use crate::updater::{self, NoteLine, Release};
 use gpui::{
     actions, div, linear_color_stop, linear_gradient, percentage, point, prelude::*, relative, rgb, svg,
     uniform_list, white, Animation, AnimationExt as _, AnyElement, BoxShadow, ClickEvent, ClipboardItem, Context,
@@ -20,9 +21,23 @@ actions!(
     mac_cleaner,
     [
         Cancel, Quit, Confirm, Rescan, Find, SelectAll, DeselectAll, QuickLook, About, CloseWindow, Minimize,
-        ThemeLight, ThemeDark, ThemeAuto, ZoomIn, ZoomOut, ZoomReset
+        ThemeLight, ThemeDark, ThemeAuto, ZoomIn, ZoomOut, ZoomReset, CheckForUpdates
     ]
 );
+
+/// Where checking for, downloading and installing a new version has got to.
+#[derive(Clone)]
+enum UpdatePhase {
+    Idle,
+    Checking,
+    UpToDate,
+    Downloading(Arc<updater::Progress>),
+    Installing,
+    Failed(SharedString),
+}
+
+/// How often an open app looks for a new version, when automatic checks are on.
+const UPDATE_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Something a popup menu entry does.
 #[derive(Clone)]
@@ -72,6 +87,9 @@ pub struct CleanerApp {
     app_icon: Arc<gpui::Image>,
     /// Icons of listed apps, read from macOS the first time each row is drawn.
     app_icons: std::cell::RefCell<HashMap<String, Option<Arc<gpui::Image>>>>,
+    /// A newer release than this copy, once a check has found one.
+    update: Option<Release>,
+    update_phase: UpdatePhase,
     /// The walkthrough is showing made-up results (`MAC_CLEANER_SAMPLE`), for README screenshots.
     #[cfg(debug_assertions)]
     sample: bool,
@@ -92,6 +110,22 @@ impl CleanerApp {
             let disk = cx.background_executor().spawn(async { scanner::disk_space() }).await;
             if this.update(cx, |this, cx| this.set_disk(disk, cx)).is_err() {
                 break; // the window is gone
+            }
+        })
+        .detach();
+        // Look for a new version shortly after launch, then once a day.
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_secs(3)).await;
+            loop {
+                let ok = this.update(cx, |this, cx| {
+                    if this.settings.auto_update && !this.settings.frozen {
+                        this.check_updates(false, cx);
+                    }
+                });
+                if ok.is_err() {
+                    break;
+                }
+                cx.background_executor().timer(UPDATE_INTERVAL).await;
             }
         })
         .detach();
@@ -118,6 +152,8 @@ impl CleanerApp {
                 include_bytes!("../assets/icon/AppIcon-256.png").to_vec(),
             )),
             app_icons: Default::default(),
+            update: None,
+            update_phase: UpdatePhase::Idle,
             #[cfg(debug_assertions)]
             sample: false,
             _appearance: appearance,
@@ -539,6 +575,8 @@ impl CleanerApp {
 
     fn on_cancel(&mut self, cx: &mut Context<Self>) {
         if self.popup.take().is_some() {
+        } else if self.m.modal == Modal::Update {
+            self.close_update();
         } else if matches!(self.m.modal, Modal::Confirm | Modal::About) {
             self.m.modal = Modal::None;
         } else if self.m.screen == Screen::Results && (self.search_on || !self.m.query.is_empty()) {
@@ -567,6 +605,133 @@ impl CleanerApp {
             // Return never confirms the move to the Trash: that takes a click.
             _ => {}
         }
+    }
+
+    fn update_busy(&self) -> bool {
+        matches!(self.update_phase, UpdatePhase::Checking | UpdatePhase::Downloading(_) | UpdatePhase::Installing)
+    }
+
+    /// Asks GitHub for the latest release. A check the user asked for reports what it found;
+    /// an automatic one only ever shows the "Update" button.
+    fn check_updates(&mut self, manual: bool, cx: &mut Context<Self>) {
+        if self.update_busy() {
+            return;
+        }
+        if manual {
+            self.update_phase = UpdatePhase::Checking;
+            cx.notify();
+        }
+        cx.spawn(async move |this, cx| {
+            let result = cx.background_executor().spawn(async { updater::check() }).await;
+            this.update(cx, |this, cx| {
+                if matches!(this.update_phase, UpdatePhase::Checking) {
+                    this.update_phase = UpdatePhase::Idle;
+                } else if this.update_busy() {
+                    return; // an automatic check finished while an update is already under way
+                }
+                match result {
+                    Ok(Some(release)) => {
+                        this.update = Some(release);
+                        if manual && matches!(this.m.modal, Modal::None | Modal::About) {
+                            this.popup = None;
+                            this.m.modal = Modal::Update;
+                        }
+                    }
+                    Ok(None) => {
+                        this.update = None;
+                        if manual {
+                            this.update_phase = UpdatePhase::UpToDate;
+                            if this.m.modal == Modal::None {
+                                this.show_toast(&format!("Mac Cleaner {} is the latest version.", updater::CURRENT), cx);
+                            }
+                        }
+                    }
+                    Err(e) if manual => {
+                        let msg = format!("Couldn't check for updates: {e}.");
+                        if this.m.modal == Modal::None {
+                            this.show_toast(&msg, cx);
+                        }
+                        this.update_phase = UpdatePhase::Failed(msg.into());
+                    }
+                    Err(_) => {} // an automatic check fails quietly, e.g. while offline
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Downloads and checks the new version, then quits so the installer can swap it in.
+    fn start_update(&mut self, cx: &mut Context<Self>) {
+        let Some(release) = self.update.clone() else { return };
+        if self.update_busy() {
+            return;
+        }
+        let target = match updater::install_target() {
+            Ok(t) => t,
+            Err(e) => {
+                self.update_phase = UpdatePhase::Failed(e.to_string().into());
+                return cx.notify();
+            }
+        };
+        let progress = Arc::new(updater::Progress::default());
+        self.update_phase = UpdatePhase::Downloading(progress.clone());
+        cx.notify();
+        // Repaint the progress bar while the download runs.
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(Duration::from_millis(150)).await;
+            let downloading = this.update(cx, |this, cx| {
+                cx.notify();
+                matches!(this.update_phase, UpdatePhase::Downloading(_))
+            });
+            if !downloading.unwrap_or(false) {
+                break;
+            }
+        })
+        .detach();
+        cx.spawn(async move |this, cx| {
+            let p = progress.clone();
+            let result = cx.background_executor().spawn(async move { updater::download(&release, &p) }).await;
+            this.update(cx, |this, cx| {
+                match result.and_then(|staged| {
+                    this.update_phase = UpdatePhase::Installing;
+                    updater::install(&staged, &target)
+                }) {
+                    Ok(()) => {
+                        cx.notify();
+                        // Give the dialog a moment to show "Installing…", then make way.
+                        cx.spawn(async move |_, cx| {
+                            cx.background_executor().timer(Duration::from_millis(600)).await;
+                            cx.update(|cx| cx.quit()).ok();
+                        })
+                        .detach();
+                    }
+                    Err(_) if progress.cancel.load(Ordering::Relaxed) => this.update_phase = UpdatePhase::Idle,
+                    Err(e) => this.update_phase = UpdatePhase::Failed(format!("The update didn't finish: {e}.").into()),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn cancel_update(&mut self) {
+        if let UpdatePhase::Downloading(p) = &self.update_phase {
+            p.cancel.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Closes the update dialog, unless it is in the middle of installing.
+    fn close_update(&mut self) {
+        match self.update_phase {
+            UpdatePhase::Installing => return,
+            UpdatePhase::Downloading(_) => self.cancel_update(),
+            UpdatePhase::Failed(_) | UpdatePhase::UpToDate => self.update_phase = UpdatePhase::Idle,
+            _ => {}
+        }
+        self.m.modal = Modal::None;
     }
 
     fn show_toast(&mut self, msg: &str, cx: &mut Context<Self>) {
@@ -766,6 +931,44 @@ impl CleanerApp {
             forward(&this, cx);
             wait(250).await;
             snap("4e-about");
+
+            // The update flow, with a made-up release: About, the dialog, a download part-way, an error.
+            if sample {
+                let steps: [(&str, fn(&mut Self)); 4] = [
+                    ("4f-about-update", |this| {
+                        this.update = Some(updater::Release::sample());
+                    }),
+                    ("4g-update", |this| this.m.modal = Modal::Update),
+                    ("4h-update-downloading", |this| {
+                        let p = updater::Progress::default();
+                        p.done.store(4_200_000, Ordering::Relaxed);
+                        this.update_phase = UpdatePhase::Downloading(Arc::new(p));
+                    }),
+                    ("4i-update-failed", |this| {
+                        this.update_phase = UpdatePhase::Failed(
+                            "The update didn't finish: the download is not signed by Mac Cleaner's release key.".into(),
+                        )
+                    }),
+                ];
+                for (name, step) in steps {
+                    this.update(cx, |this, cx| {
+                        step(this);
+                        cx.notify();
+                    })
+                    .ok();
+                    wait(500).await;
+                    forward(&this, cx);
+                    wait(250).await;
+                    snap(name);
+                }
+                this.update(cx, |this, cx| {
+                    this.update = None;
+                    this.update_phase = UpdatePhase::Idle;
+                    this.m.modal = Modal::None;
+                    cx.notify();
+                })
+                .ok();
+            }
 
             this.update(cx, |this, cx| {
                 this.m.modal = Modal::Confirm;
@@ -1791,6 +1994,35 @@ impl CleanerApp {
         )
     }
 
+    /// Shown next to the zoom control once a newer version is found.
+    fn update_button(&self, t: &Theme, cx: &mut Context<Self>) -> Div {
+        div().p(pt(2.)).rounded(pt(8.)).bg(t.accent_soft).child(
+            div()
+                .id("update")
+                .h(pt(24.))
+                .px(pt(9.))
+                .rounded(pt(6.))
+                .flex()
+                .items_center()
+                .gap(pt(5.))
+                .cursor_pointer()
+                .bg(t.accent)
+                .hover(|s| s.bg(t.accent_hover))
+                .text_size(pt(11.5))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(white())
+                .child(icon("download", 13., white()))
+                .child("Update Available")
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if this.m.modal == Modal::None {
+                        this.popup = None;
+                        this.m.modal = Modal::Update;
+                        cx.notify();
+                    }
+                })),
+        )
+    }
+
     /// One button showing the current appearance; it opens a menu to pick Light, Dark or Match System.
     fn theme_switch(&self, t: &Theme, cx: &mut Context<Self>) -> Div {
         let current = self.theme_mode;
@@ -2025,7 +2257,32 @@ impl CleanerApp {
     }
 
     fn about(&self, t: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
-        modal_frame(t, pt(360.), pt(440.)).child(
+        let status: Option<(SharedString, Hsla)> = match (&self.update_phase, &self.update) {
+            (UpdatePhase::Checking, _) => Some(("Checking for updates…".into(), t.text_3)),
+            (UpdatePhase::Failed(msg), _) => Some((msg.clone(), t.danger)),
+            (_, Some(r)) => Some((format!("Version {} is available.", r.version).into(), t.accent)),
+            (UpdatePhase::UpToDate, None) => Some(("You have the latest version.".into(), t.success)),
+            _ => None,
+        };
+        let check_btn = match &self.update {
+            Some(r) => button("about-update", format!("Update to {}…", r.version), Some("download"), Btn::Primary, true, t)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.update_phase = UpdatePhase::Idle;
+                    this.m.modal = Modal::Update;
+                    cx.notify();
+                })),
+            None => {
+                let checking = matches!(self.update_phase, UpdatePhase::Checking);
+                let b = button("about-check", "Check for Updates", Some("refresh"), Btn::Secondary, !checking, t);
+                if checking {
+                    b
+                } else {
+                    b.on_click(cx.listener(|this, _, _, cx| this.check_updates(true, cx)))
+                }
+            }
+        };
+        let auto = self.settings.auto_update;
+        modal_frame(t, pt(360.), pt(560.)).child(
             div()
                 .flex()
                 .flex_col()
@@ -2045,10 +2302,203 @@ impl CleanerApp {
                         .text_color(t.text_2)
                         .child("A careful cleaner for macOS. Everything it removes goes to the Trash, so you can put it back."),
                 )
+                .child(
+                    div()
+                        .w_full()
+                        .mb(pt(20.))
+                        .pt(pt(16.))
+                        .border_t_1()
+                        .border_color(t.border)
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap(pt(10.))
+                        .child(check_btn)
+                        .when_some(status, |el, (text, color)| {
+                            el.child(div().text_center().text_size(pt(12.)).text_color(color).child(text))
+                        })
+                        .child(
+                            div()
+                                .id("auto-update")
+                                .flex()
+                                .items_center()
+                                .gap(pt(8.))
+                                .cursor_pointer()
+                                .text_size(pt(12.5))
+                                .text_color(t.text_2)
+                                .child(checkbox(if auto { Check::On } else { Check::Off }, t))
+                                .child("Check for updates automatically")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.settings.auto_update = !this.settings.auto_update;
+                                    this.settings.save();
+                                    if this.settings.auto_update {
+                                        this.check_updates(false, cx);
+                                    }
+                                    cx.notify();
+                                })),
+                        ),
+                )
                 .child(button("about-close", "Close", None, Btn::Secondary, true, t).on_click(cx.listener(|this, _, _, cx| {
                     this.m.modal = Modal::None;
                     cx.notify();
                 }))),
+        )
+    }
+
+    /// What's new in the available version, with Update Now, a progress bar while it downloads
+    /// and any error.
+    fn update_dialog(&self, t: &Theme, max_h: Pixels, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let release = self.update.as_ref()?;
+        let notes = release.notes.iter().enumerate().map(|(i, line)| match line {
+            NoteLine::Heading(h) => div()
+                .when(i > 0, |el| el.mt(pt(10.)))
+                .mb(pt(4.))
+                .text_size(pt(11.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(t.text_3)
+                .child(h.to_uppercase()),
+            NoteLine::Bullet(b) => div()
+                .flex()
+                .gap(pt(8.))
+                .py(pt(2.))
+                .line_height(pt(18.))
+                .child(div().flex_none().text_color(t.text_3).child("•"))
+                .child(div().flex_1().min_w_0().text_color(t.text_2).child(b.clone())),
+        });
+
+        let status: Option<Div> = match &self.update_phase {
+            UpdatePhase::Downloading(p) => {
+                let done = p.done.load(Ordering::Relaxed);
+                let pct = if release.size > 0 { (done as f32 / release.size as f32).min(1.) } else { 0. };
+                Some(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(pt(6.))
+                        .child(
+                            div()
+                                .h(pt(6.))
+                                .rounded(pt(3.))
+                                .bg(t.border)
+                                .overflow_hidden()
+                                .child(div().h_full().w(relative(pct)).rounded(pt(3.)).bg(gradient_h(0x34c7bd, t.accent))),
+                        )
+                        .child(div().text_size(pt(12.)).text_color(t.text_3).child(if release.size > 0 {
+                            format!("Downloading… {} of {}", bytes(done), bytes(release.size))
+                        } else {
+                            format!("Downloading… {}", bytes(done))
+                        })),
+                )
+            }
+            UpdatePhase::Installing => Some(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(pt(10.))
+                    .text_size(pt(12.5))
+                    .text_color(t.text_2)
+                    .child(spinner("installing", 16., t))
+                    .child("Installing… Mac Cleaner will reopen in a moment."),
+            ),
+            UpdatePhase::Failed(msg) => Some(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(pt(8.))
+                    .p(pt(10.))
+                    .rounded(pt(8.))
+                    .bg(t.danger_soft)
+                    .text_size(pt(12.5))
+                    .text_color(t.danger)
+                    .child(div().flex_none().pt(pt(1.)).child(icon("alert", 14., t.danger)))
+                    .child(div().flex_1().min_w_0().child(msg.clone())),
+            ),
+            _ => None,
+        };
+
+        let footer = match &self.update_phase {
+            UpdatePhase::Installing => div(),
+            UpdatePhase::Downloading(_) => div().child(button("update-cancel", "Cancel", None, Btn::Secondary, true, t).on_click(
+                cx.listener(|this, _, _, cx| {
+                    this.cancel_update();
+                    cx.notify();
+                }),
+            )),
+            phase => {
+                let label = if matches!(phase, UpdatePhase::Failed(_)) { "Try Again" } else { "Update Now" };
+                div()
+                    .flex()
+                    .gap(pt(8.))
+                    .child(button("update-later", "Later", None, Btn::Secondary, true, t).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.close_update();
+                            cx.notify();
+                        },
+                    )))
+                    .child(button("update-now", label, Some("download"), Btn::Primary, true, t).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.update_phase = UpdatePhase::Idle;
+                            this.start_update(cx);
+                        },
+                    )))
+            }
+        };
+
+        Some(
+            modal_frame(t, pt(440.), max_h).child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .min_h_0()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(pt(14.))
+                            .px(pt(24.))
+                            .pt(pt(22.))
+                            .child(gpui::img(self.app_icon.clone()).flex_none().size(pt(56.)))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .min_w_0()
+                                    .child(
+                                        div()
+                                            .text_size(pt(17.))
+                                            .font_weight(FontWeight::BOLD)
+                                            .child(format!("Mac Cleaner {} is available", release.version)),
+                                    )
+                                    .child(
+                                        div()
+                                            .mt(pt(2.))
+                                            .text_size(pt(12.5))
+                                            .text_color(t.text_3)
+                                            .child(format!("You have version {}.", updater::CURRENT)),
+                                    ),
+                            ),
+                    )
+                    .when(!release.notes.is_empty(), |el| {
+                        el.child(div().px(pt(24.)).pt(pt(16.)).text_size(pt(12.5)).font_weight(FontWeight::SEMIBOLD).child("What's new"))
+                            .child(
+                                div()
+                                    .id("update-notes")
+                                    .mx(pt(24.))
+                                    .mt(pt(8.))
+                                    .p(pt(12.))
+                                    .max_h(pt(220.))
+                                    .overflow_y_scroll()
+                                    .rounded(pt(10.))
+                                    .bg(t.surface_2)
+                                    .border_1()
+                                    .border_color(t.border)
+                                    .text_size(pt(12.5))
+                                    .children(notes),
+                            )
+                    })
+                    .when_some(status, |el, s| el.child(div().px(pt(24.)).pt(pt(16.)).child(s)))
+                    .child(div().px(pt(24.)).pt(pt(20.)).pb(pt(22.)).flex().justify_end().child(footer)),
+            ),
         )
     }
 
@@ -2165,6 +2615,7 @@ impl Render for CleanerApp {
             Modal::Confirm => Some(self.confirm(&t, max_h, cx)),
             Modal::Working => Some(self.working(&t)),
             Modal::About => Some(self.about(&t, cx)),
+            Modal::Update => self.update_dialog(&t, max_h, cx),
         };
         let popup = self.popup_layer(&t, viewport, cx);
 
@@ -2209,6 +2660,17 @@ impl Render for CleanerApp {
                     cx.notify();
                 }
             }))
+            .on_action(cx.listener(|this, _: &CheckForUpdates, _, cx| {
+                if this.m.modal == Modal::None || this.m.modal == Modal::About {
+                    this.popup = None;
+                    if this.update.is_some() {
+                        this.m.modal = Modal::Update;
+                        cx.notify();
+                    } else {
+                        this.check_updates(true, cx);
+                    }
+                }
+            }))
             .on_action(cx.listener(|_, _: &CloseWindow, window, _| window.remove_window()))
             .on_action(cx.listener(|_, _: &Minimize, window, _| window.minimize_window()))
             .on_action(cx.listener(|this, _: &ThemeLight, _, cx| this.set_theme(ThemeMode::Light, cx)))
@@ -2233,6 +2695,7 @@ impl Render for CleanerApp {
                     .flex()
                     .items_center()
                     .gap(pt(8.))
+                    .when(self.update.is_some(), |el| el.child(self.update_button(&t, cx)))
                     .when(self.m.screen == Screen::Results, |el| el.child(self.rescan_button(&t, cx)))
                     .child(self.zoom_switch(&t, cx))
                     .child(self.theme_switch(&t, cx)),
@@ -2250,7 +2713,10 @@ impl Render for CleanerApp {
                         .justify_center()
                         .p(pt(32.))
                         .on_click(cx.listener(|this, _, _, cx| {
-                            if matches!(this.m.modal, Modal::Confirm | Modal::About) {
+                            if this.m.modal == Modal::Update {
+                                this.close_update();
+                                cx.notify();
+                            } else if matches!(this.m.modal, Modal::Confirm | Modal::About) {
                                 this.m.modal = Modal::None;
                                 cx.notify();
                             }
