@@ -77,7 +77,26 @@ jobs:
           shasum -a 256 "$DMG" > "$DMG.sha256"
           echo "DMG=$DMG" >> "$GITHUB_ENV"
 
+      # The app installs an update only if this signature checks out against the public key built
+      # into it (src/updater.rs). The trusted comment names the DMG, so a signature can't be reused
+      # for another version.
+      - name: Sign DMG
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          if [ -z "$MINISIGN_SECRET_KEY" ]; then
+            echo "::error::The MINISIGN_SECRET_KEY secret is missing"
+            exit 1
+          fi
+          command -v minisign >/dev/null || brew install minisign
+          KEY="$RUNNER_TEMP/minisign.key"
+          trap 'rm -f "$KEY"' EXIT
+          (umask 077 && printf '%s\n' "$MINISIGN_SECRET_KEY" > "$KEY")
+          minisign -S -s "$KEY" -m "$DMG" -t "$DMG" </dev/null
+          PUBLIC_KEY=$(sed -n 's/^const PUBLIC_KEY: &str = "\(.*\)";/\1/p' src/updater.rs)
+          minisign -V -P "$PUBLIC_KEY" -m "$DMG"
+
       - name: Attach DMG to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$TAG" "$DMG" "$DMG.sha256" --clobber
+        run: gh release upload "$TAG" "$DMG" "$DMG.sha256" "$DMG.minisig" --clobber

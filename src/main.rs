@@ -13,6 +13,7 @@ mod settings;
 mod snapshot;
 mod theme;
 mod ui;
+mod updater;
 
 use gpui::{
     point, prelude::*, px, App, Application, AssetSource, Bounds, KeyBinding, Menu, MenuItem, SharedString,
@@ -90,6 +91,7 @@ fn main() {
                 name: "Mac Cleaner".into(),
                 items: vec![
                     MenuItem::action("About Mac Cleaner", ui::About),
+                    MenuItem::action("Check for Updates…", ui::CheckForUpdates),
                     MenuItem::separator(),
                     MenuItem::action("Quit Mac Cleaner", ui::Quit),
                 ],

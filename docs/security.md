@@ -6,10 +6,11 @@ For anyone asking whether this contains a virus: all of the source is in this re
 
 **What the app does** (each point can be confirmed in `src/`)
 
-- **No network use.** The app's own code has no networking, and it sends nothing anywhere. Its UI framework (GPUI) includes an HTTP client that the app never calls. The running app held no network connections when checked on 2026-11-23.
+- **Network use is limited to updates.** The app talks to GitHub only, and only to look for and download a new version (see [Updates](using.md#updates)). It sends nothing about your Mac or your files. Turn off "Check for updates automatically" in About Mac Cleaner and it connects only when you choose Check for Updates.
+- **Updates are signed.** A downloaded update is installed only if its signature matches the release key built into the app, and the signature names that exact version. Anyone who could change the files on the GitHub release page still couldn't get the app to install something else.
 - **No admin rights.** It never asks for a password, and installs no helper, background process or login item.
-- **It runs three Apple tools, by full path:** `/usr/bin/open` (Finder, the Trash, System Settings), `/usr/bin/qlmanage` (Quick Look) and `/usr/bin/plutil` (to read simulator names).
-- **It writes one file:** its own settings. Everything it removes is moved to the Trash, never deleted.
+- **It runs Apple tools, by full path:** `/usr/bin/open` (Finder, the Trash, System Settings), `/usr/bin/qlmanage` (Quick Look) and `/usr/bin/plutil` (to read simulator names and an update's version). For updates it also runs `/usr/bin/curl` (download), `/usr/bin/hdiutil` (open the DMG), `/usr/bin/ditto` (copy the app) and a short `/bin/sh` script that swaps the app once it has quit.
+- **It writes its own settings,** and while updating, a staging folder next to them. Everything it removes is moved to the Trash, never deleted.
 
 **Checks run on 2026-11-23**
 
@@ -29,7 +30,7 @@ For anyone asking whether this contains a virus: all of the source is in this re
 - This is not an independent audit or a penetration test. The review was done by Claude, the same AI tool that wrote the code, by reading the source; nobody outside the project has reviewed it.
 - A VirusTotal result covers that one build on that day. It is not proof that the app is harmless, and it does not carry over to a later version or to a copy you build yourself, which will have a different fingerprint.
 - Cloudflare did not audit, scan, test or endorse this app. The security-audit skill is a published set of review instructions that Claude followed; no Cloudflare service was run.
-- Code added after that review has not been reviewed for security: zoom, search and filters, popup menus, the About dialog, the ignore list, Project Build Folders, Simulator Devices and Quick Look.
+- Code added after that review has not been reviewed for security: zoom, search and filters, popup menus, the About dialog, the ignore list, Project Build Folders, Simulator Devices, Quick Look and the updater.
 - A very small timing window remains between the last check and the move to the Trash, and the home folder itself is not checked for being a symlink.
 - The app is ad-hoc signed, not notarized by Apple, so macOS warns when a downloaded copy is opened. A prebuilt copy from someone else cannot be shown to match this source; build it yourself with `./scripts/bundle.sh`.
 

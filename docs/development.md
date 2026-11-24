@@ -20,6 +20,10 @@ cargo run --release
 
 Releasing is automated with [release-please](https://github.com/googleapis/release-please). Pull requests are squash-merged and their titles follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:` for a new feature, `fix:` for a bug fix, and `docs:`, `ci:`, `chore:`, `refactor:` or `test:` for everything else (a CI check enforces this). After `feat:` or `fix:` changes are merged, release-please opens a `chore: release x.y.z` pull request that bumps the version and lists those changes as the release notes. Merging it tags `vx.y.z`, publishes the GitHub Release with those notes, and the self-hosted runner builds the DMG and attaches it.
 
+**Signing.** CI signs each DMG with [minisign](https://jedisct1.github.io/minisign/) and uploads the signature as `Mac-Cleaner-<version>-arm64.dmg.minisig`, after checking it against the public key in `src/updater.rs`. Its trusted comment is the DMG's file name, so a signature from an older release can't be passed off as a newer one. The secret key is the `MINISIGN_SECRET_KEY` repository secret; without it the release build stops at the signing step. The app's updater installs nothing that fails this check.
+
+To try the whole update flow without publishing, debug builds read the release from `MAC_CLEANER_UPDATE_FEED` (for example a `file://` URL to a JSON file shaped like GitHub's `releases/latest` reply, pointing at a locally signed DMG). Release builds always ask GitHub.
+
 ## Tests
 
 ```sh
@@ -61,7 +65,8 @@ src/
   apps.rs       installed apps, their support files, leftovers of deleted apps
   duplicates.rs identical-file search and the byte-by-byte recheck before a move
   theme.rs      light/dark palette, layout metrics, zoom levels and the pt() size unit
-  settings.rs   saved choices: theme, zoom, size limit, ignore list, history
+  settings.rs   saved choices: theme, zoom, size limit, ignore list, history, update checks
+  updater.rs    update check, download, signature check and the swap into Applications
   category_icons.rs  which macOS icon each category shows (app, folder or device artwork, read at runtime)
   native.rs     AppKit calls GPUI does not expose (minimum window size, usable screen size)
   snapshot.rs   developer-only self-capture for UI checks (debug builds)
