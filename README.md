@@ -227,7 +227,7 @@ src/
   snapshot.rs   developer-only self-capture for UI checks (debug builds)
   sample.rs     made-up scan results for README screenshots (debug builds)
 assets/icons/   SVG line icons used in the UI
-assets/icon/    app icon source: make_icon.py → AppIcon.svg (rendered into AppIcon.icns)
+assets/icon/    app icon source: make_icon.py → AppIcon.svg → render_icon.sh → AppIcon.icns
 ```
 
 ## Notes
