@@ -304,7 +304,7 @@ fn sources(home: &Path) -> Vec<Source> {
             id: "simulator-devices",
             title: "Simulator Devices",
             description: "Simulators with the apps and data installed on them. Xcode can create a device again, but what was on it is gone.",
-            icon: "phone",
+            icon: "devices",
             risk: Risk::Review,
             roots: vec![Root {
                 path: h("Library/Developer/CoreSimulator/Devices"),
@@ -315,7 +315,7 @@ fn sources(home: &Path) -> Vec<Source> {
             id: "installers",
             title: "Installers in Downloads",
             description: "Disk images and installer packages. Usually not needed once the app is installed.",
-            icon: "download",
+            icon: "installer",
             risk: Risk::Review,
             roots: vec![Root {
                 path: h("Downloads"),
@@ -334,7 +334,7 @@ fn sources(home: &Path) -> Vec<Source> {
             id: "ios-updates",
             title: "iOS Software Updates",
             description: "Downloaded system updates for iPhone and iPad. Finder downloads them again when needed.",
-            icon: "download",
+            icon: "cloud-download",
             risk: Risk::Safe,
             roots: ["iPhone", "iPad", "iPod"]
                 .iter()
@@ -348,7 +348,7 @@ fn sources(home: &Path) -> Vec<Source> {
             id: "ios-backups",
             title: "Device Backups",
             description: "iPhone and iPad backups made with Finder. Keep the latest one of each device unless it is backed up to iCloud.",
-            icon: "phone",
+            icon: "backup",
             risk: Risk::Review,
             roots: vec![Root { path: h("Library/Application Support/MobileSync/Backup"), layout: Layout::Backups }],
         },
@@ -380,7 +380,7 @@ fn sources(home: &Path) -> Vec<Source> {
             id: "large-files",
             title: "Large Files & Folders",
             description: "The biggest files in your home folder, and the folders that hold them. These are your own files, not caches, so check each one.",
-            icon: "drive",
+            icon: "large",
             risk: Risk::Review,
             roots: vec![Root { path: home.to_path_buf(), layout: Layout::LargeFiles }],
         },

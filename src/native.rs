@@ -158,39 +158,107 @@ pub fn running_executables() -> Vec<std::path::PathBuf> {
 
 /// The icon Finder shows for `path`, as PNG bytes `px` pixels square.
 pub fn file_icon_png(path: &std::path::Path, px: f64) -> Option<Vec<u8>> {
-    use std::os::unix::ffi::OsStrExt;
-    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    let c_path = c_path(path)?;
     unsafe {
         let pool: *mut Object = msg_send![class!(NSAutoreleasePool), new];
-        let nil: *mut Object = std::ptr::null_mut();
         let ns_path: *mut Object = msg_send![class!(NSString), stringWithUTF8String: c_path.as_ptr()];
         let workspace: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
-        let image: *mut Object = if ns_path.is_null() { nil } else { msg_send![workspace, iconForFile: ns_path] };
+        let image: *mut Object = if ns_path.is_null() { std::ptr::null_mut() } else { msg_send![workspace, iconForFile: ns_path] };
+        let out = image_png(image, px);
+        let _: () = msg_send![pool, drain];
+        out
+    }
+}
+
+/// The icon Finder shows for files with extension `ext` (such as `log`), as PNG bytes `px` pixels square.
+pub fn file_type_icon_png(ext: &str, px: f64) -> Option<Vec<u8>> {
+    let c_ext = std::ffi::CString::new(ext).ok()?;
+    unsafe {
+        let pool: *mut Object = msg_send![class!(NSAutoreleasePool), new];
+        let ns_ext: *mut Object = msg_send![class!(NSString), stringWithUTF8String: c_ext.as_ptr()];
+        let workspace: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let image: *mut Object = if ns_ext.is_null() { std::ptr::null_mut() } else { msg_send![workspace, iconForFileType: ns_ext] };
+        let out = image_png(image, px);
+        let _: () = msg_send![pool, drain];
+        out
+    }
+}
+
+/// An image file macOS can read (such as an `.icns` from CoreTypes.bundle), as PNG bytes `px` pixels square.
+pub fn image_file_png(path: &std::path::Path, px: f64) -> Option<Vec<u8>> {
+    let c_path = c_path(path)?;
+    unsafe {
+        let pool: *mut Object = msg_send![class!(NSAutoreleasePool), new];
+        let ns_path: *mut Object = msg_send![class!(NSString), stringWithUTF8String: c_path.as_ptr()];
         let mut out = None;
-        if !image.is_null() {
-            let size = NSSize { width: px, height: px };
-            let _: () = msg_send![image, setSize: size];
-            let mut rect = NSRect { x: 0., y: 0., size };
-            let cg: *mut std::ffi::c_void = msg_send![image, CGImageForProposedRect: &mut rect context: nil hints: nil];
-            if !cg.is_null() {
-                let rep: *mut Object = msg_send![class!(NSBitmapImageRep), alloc];
-                let rep: *mut Object = msg_send![rep, initWithCGImage: cg];
-                if !rep.is_null() {
-                    let props: *mut Object = msg_send![class!(NSDictionary), dictionary];
-                    // NSBitmapImageFileTypePNG
-                    let data: *mut Object = msg_send![rep, representationUsingType: 4u64 properties: props];
-                    if !data.is_null() {
-                        let len: usize = msg_send![data, length];
-                        let bytes: *const u8 = msg_send![data, bytes];
-                        if !bytes.is_null() && len > 0 {
-                            out = Some(std::slice::from_raw_parts(bytes, len).to_vec());
-                        }
-                    }
-                    let _: () = msg_send![rep, release];
-                }
+        if !ns_path.is_null() {
+            let image: *mut Object = msg_send![class!(NSImage), alloc];
+            let image: *mut Object = msg_send![image, initWithContentsOfFile: ns_path];
+            if !image.is_null() {
+                out = image_png(image, px);
+                let _: () = msg_send![image, release];
             }
         }
         let _: () = msg_send![pool, drain];
         out
     }
+}
+
+/// Where the app with `bundle_id` is installed, if it is.
+pub fn app_path(bundle_id: &str) -> Option<std::path::PathBuf> {
+    let c_id = std::ffi::CString::new(bundle_id).ok()?;
+    unsafe {
+        let pool: *mut Object = msg_send![class!(NSAutoreleasePool), new];
+        let ns_id: *mut Object = msg_send![class!(NSString), stringWithUTF8String: c_id.as_ptr()];
+        let workspace: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let url: *mut Object =
+            if ns_id.is_null() { std::ptr::null_mut() } else { msg_send![workspace, URLForApplicationWithBundleIdentifier: ns_id] };
+        let path: *mut Object = if url.is_null() { std::ptr::null_mut() } else { msg_send![url, path] };
+        let out = if path.is_null() {
+            None
+        } else {
+            let utf8: *const std::os::raw::c_char = msg_send![path, UTF8String];
+            (!utf8.is_null()).then(|| std::path::PathBuf::from(std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned()))
+        };
+        let _: () = msg_send![pool, drain];
+        out
+    }
+}
+
+fn c_path(path: &std::path::Path) -> Option<std::ffi::CString> {
+    use std::os::unix::ffi::OsStrExt;
+    std::ffi::CString::new(path.as_os_str().as_bytes()).ok()
+}
+
+/// PNG bytes of an NSImage drawn `px` pixels square. Call inside an autorelease pool.
+unsafe fn image_png(image: *mut Object, px: f64) -> Option<Vec<u8>> {
+    if image.is_null() {
+        return None;
+    }
+    let nil: *mut Object = std::ptr::null_mut();
+    let size = NSSize { width: px, height: px };
+    let _: () = msg_send![image, setSize: size];
+    let mut rect = NSRect { x: 0., y: 0., size };
+    let cg: *mut std::ffi::c_void = msg_send![image, CGImageForProposedRect: &mut rect context: nil hints: nil];
+    if cg.is_null() {
+        return None;
+    }
+    let rep: *mut Object = msg_send![class!(NSBitmapImageRep), alloc];
+    let rep: *mut Object = msg_send![rep, initWithCGImage: cg];
+    if rep.is_null() {
+        return None;
+    }
+    let props: *mut Object = msg_send![class!(NSDictionary), dictionary];
+    // NSBitmapImageFileTypePNG
+    let data: *mut Object = msg_send![rep, representationUsingType: 4u64 properties: props];
+    let mut out = None;
+    if !data.is_null() {
+        let len: usize = msg_send![data, length];
+        let bytes: *const u8 = msg_send![data, bytes];
+        if !bytes.is_null() && len > 0 {
+            out = Some(std::slice::from_raw_parts(bytes, len).to_vec());
+        }
+    }
+    let _: () = msg_send![rep, release];
+    out
 }

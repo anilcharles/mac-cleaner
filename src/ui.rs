@@ -70,8 +70,10 @@ pub struct CleanerApp {
     /// The Kind column is dropped in a narrow window.
     show_kind: bool,
     app_icon: Arc<gpui::Image>,
-    /// Icons of listed apps, read from macOS the first time each row is drawn.
+    /// Finder's icons of listed items, read from macOS the first time each row is drawn.
     app_icons: std::cell::RefCell<HashMap<String, Option<Arc<gpui::Image>>>>,
+    /// macOS's own icon for each category, read the first time it is drawn.
+    category_icons: std::cell::RefCell<HashMap<String, Option<Arc<gpui::Image>>>>,
     /// The walkthrough is showing made-up results (`MAC_CLEANER_SAMPLE`), for README screenshots.
     #[cfg(debug_assertions)]
     sample: bool,
@@ -118,6 +120,7 @@ impl CleanerApp {
                 include_bytes!("../assets/icon/AppIcon-256.png").to_vec(),
             )),
             app_icons: Default::default(),
+            category_icons: Default::default(),
             #[cfg(debug_assertions)]
             sample: false,
             _appearance: appearance,
@@ -841,7 +844,7 @@ impl CleanerApp {
                 .gap(pt(12.))
                 .px(pt(10.))
                 .py(pt(6.))
-                .child(tile(s.id, s.icon, 26.))
+                .child(self.category_icon(s.id, s.icon, 28., false))
                 .child(div().flex_1().min_w_0().ellipsis().font_weight(FontWeight::MEDIUM).child(s.title))
                 .when(s.risk == Risk::Review, |el| el.child(badge("Review", t.warning, t.warning_soft)))
         });
@@ -931,7 +934,7 @@ impl CleanerApp {
                 .items_center()
                 .gap(pt(12.))
                 .text_color(if done { t.text } else { t.text_3 })
-                .child(if done { tile(s.id, s.icon, 20.) } else { tile("muted", s.icon, 20.).opacity(0.45) })
+                .child(self.category_icon(s.id, s.icon, 22., !done))
                 .child(div().flex_1().child(s.title))
                 .child(
                     div().size(pt(18.)).flex().items_center().justify_center().child(if done {
@@ -1059,7 +1062,7 @@ impl CleanerApp {
                         })
                         .child(checkbox(state, t)),
                 )
-                .child(if empty { tile("muted", c.info.icon, 30.).opacity(0.5) } else { tile(c.info.id, c.info.icon, 30.) })
+                .child(self.category_icon(c.info.id, c.info.icon, 32., empty))
                 .child(
                     div()
                         .flex_1()
@@ -1171,7 +1174,7 @@ impl CleanerApp {
             .items_start()
             .gap(pt(16.))
             .pb(pt(20.))
-            .child(tile_lg(id, icon_name))
+            .child(self.category_icon(id, icon_name, 48., false))
             .child(
                 div()
                     .flex_1()
@@ -1422,20 +1425,52 @@ impl CleanerApp {
     }
 
     /// The real icon of an app listed under Applications, cached after the first read.
-    fn icon_of_app(&self, path: &str) -> Option<Arc<gpui::Image>> {
+    /// The icon Finder shows for a listed file, folder or app, read from macOS the first time
+    /// its row is drawn. An item that isn't on disk (sample data) gets macOS's generic icon.
+    fn file_icon(&self, path: &str, is_dir: bool) -> Option<Arc<gpui::Image>> {
         self.app_icons
             .borrow_mut()
             .entry(path.to_string())
             .or_insert_with(|| {
                 // 64 px stays sharp at the row's size on a Retina screen, up to 150% zoom.
-                let path = std::path::Path::new(path);
-                // A missing app would get macOS's blank-document icon; the app glyph reads better.
-                path.exists()
-                    .then(|| crate::native::file_icon_png(path, 64.))
+                let p = std::path::Path::new(path);
+                let generic = if is_dir {
+                    "GenericFolderIcon"
+                } else if path.ends_with(".app") {
+                    "GenericApplicationIcon"
+                } else {
+                    "GenericDocumentIcon"
+                };
+                p.exists()
+                    .then(|| crate::native::file_icon_png(p, 64.))
                     .flatten()
+                    .or_else(|| crate::category_icons::system_png(generic, 64.))
                     .map(|png| Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, png)))
             })
             .clone()
+    }
+
+    /// The icon of a category, `size` points square: macOS's own artwork for it, or the line
+    /// glyph on a coloured tile if none could be read. A muted icon is grey and faded.
+    fn category_icon(&self, id: &str, glyph: &str, size: f32, muted: bool) -> Div {
+        let image = self
+            .category_icons
+            .borrow_mut()
+            .entry(id.to_string())
+            .or_insert_with(|| {
+                // 128 px stays sharp at the largest size (44 pt) on a Retina screen at 150% zoom.
+                crate::category_icons::png(id, 128.).map(|png| Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, png)))
+            })
+            .clone();
+        match image {
+            Some(image) => div()
+                .size(pt(size))
+                .flex_none()
+                .when(muted, |el| el.opacity(0.45))
+                .child(gpui::img(image).size_full().grayscale(muted)),
+            None if muted => tile("muted", glyph, size).opacity(0.45),
+            None => tile(id, glyph, size),
+        }
     }
 
     fn row(&self, ix: usize, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
@@ -1499,8 +1534,8 @@ impl CleanerApp {
                     .gap(pt(6.))
                     .min_w_0()
                     .child(disclosure)
-                    .child(div().mr(pt(4.)).child(match (!is_dir && path.ends_with(".app")).then(|| self.icon_of_app(path)).flatten() {
-                        Some(app) => gpui::img(app).size(pt(22.)).into_any_element(),
+                    .child(div().mr(pt(4.)).child(match self.file_icon(path, is_dir) {
+                        Some(image) => gpui::img(image).size(pt(22.)).into_any_element(),
                         None => {
                             let glyph = if is_dir { "folder" } else if path.ends_with(".app") { "app" } else { "file" };
                             icon(glyph, 18., if is_dir { t.folder } else { t.text_3 }).into_any_element()
@@ -1922,7 +1957,7 @@ impl CleanerApp {
                             .border_b_1()
                             .border_color(t.border)
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child(tile(c.info.id, c.info.icon, 22.))
+                            .child(self.category_icon(c.info.id, c.info.icon, 24., false))
                             .child(div().flex_1().child(c.info.title))
                             .child(
                                 div()
@@ -2448,10 +2483,6 @@ fn tile(cat_id: &str, icon_name: &str, size: f32) -> Div {
         .bg(gradient(top, bottom))
         .shadow(vec![shadow(rgba_hsla(0x00000014), 1., 2., 1.)])
         .child(icon(icon_name, size * 0.57, white()))
-}
-
-fn tile_lg(cat_id: &str, icon_name: &str) -> Div {
-    tile(cat_id, icon_name, 44.).rounded(pt(11.))
 }
 
 fn checkbox(state: Check, t: &Theme) -> Div {
