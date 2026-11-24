@@ -2,6 +2,7 @@
 
 mod app;
 mod apps;
+mod category_icons;
 mod duplicates;
 mod native;
 #[cfg(debug_assertions)]
@@ -30,10 +31,10 @@ macro_rules! icons {
 }
 
 const ICONS: &[(&str, &[u8])] = icons![
-    "alert", "app", "archive", "auto", "box", "cache", "check", "check-bold", "chevron", "chevron-down", "chevron-up", "chip",
-    "close", "code", "copy", "download", "drive", "empty", "file", "folder", "hammer", "logs", "mail", "minus", "moon", "package",
-    "phone", "plus",
-    "refresh", "reveal", "search", "shield", "sparkle", "spinner", "sun", "trash",
+    "alert", "app", "archive", "auto", "backup", "box", "cache", "check", "check-bold", "chevron", "chevron-down", "chevron-up",
+    "chip", "close", "cloud-download", "code", "copy", "devices", "download", "drive", "empty", "file", "folder", "hammer",
+    "installer", "logs", "mail", "minus", "moon", "package", "phone", "plus", "refresh", "reveal", "search", "shield", "sparkle",
+    "spinner", "sun", "trash", "large",
 ];
 
 impl AssetSource for Assets {

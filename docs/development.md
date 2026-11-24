@@ -67,10 +67,12 @@ src/
   theme.rs      light/dark palette, layout metrics, zoom levels and the pt() size unit
   settings.rs   saved choices: theme, zoom, size limit, ignore list, history, update checks
   updater.rs    update check, download, signature check and the swap into Applications
+  category_icons.rs  which macOS icon each category shows (app, folder or device artwork, read at runtime)
   native.rs     AppKit calls GPUI does not expose (minimum window size, usable screen size)
   snapshot.rs   developer-only self-capture for UI checks (debug builds)
   sample.rs     made-up scan results for README screenshots (debug builds)
-assets/icons/   SVG line icons used in the UI
+assets/icons/   small UI glyphs from Lucide (lucide.dev, ISC license: LICENSE-lucide.txt); category
+                and file icons come from macOS itself
 assets/icon/    app icon source: make_icon.py → AppIcon.svg → render_icon.sh → AppIcon.icns
 ```
 
