@@ -183,17 +183,20 @@ fn release_from(gh: GhRelease, current: &str) -> Result<Option<Release>> {
 impl Release {
     /// A made-up release for the snapshot walkthrough.
     pub fn sample() -> Self {
+        // Always one minor version ahead of this build, so the dialog reads correctly.
+        let (major, minor, _) = version_of(CURRENT).unwrap_or((1, 0, 0));
+        let version = format!("{major}.{}.0", minor + 1);
         Self {
-            version: "1.3.0".into(),
             notes: parse_notes(
-                "### Features\n\n* in-app updates: Mac Cleaner tells you about a new version and installs it for you\n\
-* app uninstaller, app leftovers, duplicate files and more categories\n\n### Bug Fixes\n\n\
+                "### Features\n\n* a faster scan of large folders\n\
+* Quick Look for several items at once\n\n### Bug Fixes\n\n\
 * the storage numbers refresh after emptying the Trash\n",
             ),
-            dmg_name: dmg_name("1.3.0"),
+            dmg_name: dmg_name(&version),
             dmg_url: String::new(),
             sig_url: String::new(),
             size: 9_800_000,
+            version,
         }
     }
 }

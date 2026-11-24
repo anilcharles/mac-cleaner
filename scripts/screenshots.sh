@@ -27,6 +27,8 @@ cp "$TMP/light-1.0/4c-search.png"      "$OUT/search.png"
 cp "$TMP/light-1.0/4d-row-menu.png"    "$OUT/row-menu.png"
 cp "$TMP/light-1.0/5-confirm.png"      "$OUT/confirm.png"
 cp "$TMP/light-1.0/7-done.png"         "$OUT/done.png"
+cp "$TMP/light-1.0/4g-update.png"      "$OUT/update.png"
+cp "$TMP/light-1.0/4f-about-update.png" "$OUT/about-update.png"
 
 run dark 1.0
 cp "$TMP/dark-1.0/3-results.png"       "$OUT/results-dark.png"
