@@ -28,6 +28,8 @@ pub struct Settings {
     pub cleans: u64,
     /// When the last scan finished, milliseconds since the Unix epoch.
     pub last_scan: Option<u64>,
+    /// Look for a new version on launch and once a day while open.
+    pub auto_update: bool,
     /// Set by the snapshot walkthrough so it never changes the saved file.
     pub frozen: bool,
 }
@@ -42,6 +44,7 @@ impl Default for Settings {
             freed_total: 0,
             cleans: 0,
             last_scan: None,
+            auto_update: true,
             frozen: false,
         }
     }
@@ -97,6 +100,7 @@ impl Settings {
                 "freed_total" => s.freed_total = value.trim().parse().unwrap_or(0),
                 "cleans" => s.cleans = value.trim().parse().unwrap_or(0),
                 "last_scan" => s.last_scan = value.trim().parse().ok(),
+                "auto_update" => s.auto_update = value.trim() != "false",
                 _ => {}
             }
         }
@@ -110,8 +114,8 @@ impl Settings {
             ThemeMode::Dark => "dark",
         };
         let mut out = format!(
-            "theme={theme}\nzoom={}\nlarge_min={}\nfreed_total={}\ncleans={}\n",
-            self.zoom, self.large_min, self.freed_total, self.cleans
+            "theme={theme}\nzoom={}\nlarge_min={}\nfreed_total={}\ncleans={}\nauto_update={}\n",
+            self.zoom, self.large_min, self.freed_total, self.cleans, self.auto_update
         );
         if let Some(t) = self.last_scan {
             out.push_str(&format!("last_scan={t}\n"));
@@ -168,6 +172,7 @@ mod tests {
         s.freed_total = 12_345;
         s.cleans = 3;
         s.last_scan = Some(1_700_000_000_000);
+        s.auto_update = false;
         assert!(s.ignore("/Users/me/Library/Caches/a=b"));
         assert!(!s.ignore("/bad\npath"));
         let back = Settings::parse(&s.serialize());
@@ -175,6 +180,7 @@ mod tests {
         assert_eq!(back.zoom, 1.3);
         assert_eq!(back.large_min, 500_000_000);
         assert_eq!((back.freed_total, back.cleans, back.last_scan), (12_345, 3, Some(1_700_000_000_000)));
+        assert!(!back.auto_update);
         assert_eq!(back.ignored, ["/Users/me/Library/Caches/a=b"]);
     }
 
@@ -184,5 +190,6 @@ mod tests {
         assert!(s.theme == ThemeMode::Light);
         assert_eq!(s.zoom, 1., "a file without a zoom line means 100%");
         assert_eq!(s.large_min, 100_000_000);
+        assert!(s.auto_update, "update checks are on unless turned off");
     }
 }

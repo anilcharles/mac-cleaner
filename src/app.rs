@@ -43,6 +43,7 @@ pub enum Modal {
     Confirm,
     Working,
     About,
+    Update,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

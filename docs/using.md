@@ -64,11 +64,22 @@ Every picture is the same window at 100% zoom. The whole interface can also be s
 - **The welcome screen** shows free disk space, when the last scan ran and how much has been cleaned so far.
 - **Storage** for your Mac (name, used-space bar and space available) sits at the bottom of the results sidebar. It is read again every 3 seconds, so emptying the Trash or a big download shows up without a rescan. "Available" matches Finder and System Settings: it includes space macOS frees on demand.
 
+## Updates
+
+From version 1.3.0, Mac Cleaner keeps itself up to date. (Versions 1.2.0 and earlier have to be updated by hand, once.)
+
+- A few seconds after launch, and once a day while it stays open, the app asks GitHub for the latest release. When there is a newer one, an **Update Available** button appears in the top-right corner. Nothing is downloaded until you click it.
+- The button opens a dialog with the release notes. **Update Now** downloads the DMG with a progress bar, checks its signature, quits, swaps the app in Applications and opens the new version. **Later** closes the dialog; the button stays.
+- **Check for Updates…** in the Mac Cleaner menu, or the button in About Mac Cleaner, checks right away. About Mac Cleaner also has the **Check for updates automatically** switch.
+- If anything goes wrong (no connection, a bad signature, an app folder it can't write to), the dialog says so and the installed app is left as it was.
+
+To check a download by hand: `minisign -Vm Mac-Cleaner-<version>-arm64.dmg -P RWQY3Ut882lI3/1xnXKTU/0Z74Iv8BV6izJOrYJ9F2irRv6MCb0xT5k4`. How releases are signed is in [Development](development.md#releasing).
+
 ## Menus
 
 | Menu | Items |
 |---|---|
-| Mac Cleaner | About Mac Cleaner, Quit |
+| Mac Cleaner | About Mac Cleaner, Check for Updates…, Quit |
 | File | Scan Again, Review & Clean…, Quick Look, Close Window |
 | Edit | Select All, Deselect All, Find |
 | View | Light, Dark, Match System, Zoom In, Zoom Out, Actual Size |
@@ -88,4 +99,4 @@ Every picture is the same window at 100% zoom. The whole interface can also be s
 - On a small screen at a high zoom, the welcome, scanning and result screens scroll instead of being cut off.
 - The app also follows macOS's own display scaling (System Settings → Displays), like every other app.
 
-**Saved between launches.** The theme, the zoom level, the Large Files size limit, the ignore list, the last scan time and the running total of cleaned space are saved as plain text in `~/Library/Application Support/Mac Cleaner/settings.txt`. That folder is never scanned or cleaned.
+**Saved between launches.** The theme, the zoom level, the Large Files size limit, the ignore list, the last scan time, the running total of cleaned space and whether to check for updates automatically are saved as plain text in `~/Library/Application Support/Mac Cleaner/settings.txt`. That folder is never scanned or cleaned.
