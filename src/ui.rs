@@ -1143,9 +1143,10 @@ impl CleanerApp {
         let (id, icon_name, title, description, risk) =
             (cat.info.id, cat.info.icon, cat.info.title, cat.info.description, cat.info.risk);
 
+        // The tile lines up with the title; the description gets the full width beside it.
         let header = div()
             .flex()
-            .items_center()
+            .items_start()
             .gap(pt(16.))
             .pb(pt(20.))
             .child(tile_lg(id, icon_name))
@@ -1166,37 +1167,38 @@ impl CleanerApp {
                             }),
                     )
                     .child(div().mt(pt(3.)).text_color(t.text_2).line_height(pt(19.)).child(description)),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .gap(pt(4.))
-                    .child({
-                        let enabled = shown > 0 && state != Check::On;
-                        button("select-all", "Select All", None, Btn::Ghost, enabled, t).when(enabled, |b| {
-                            b.on_click(cx.listener(move |this, _, _, cx| {
-                                this.m.set_visible(true);
-                                cx.notify();
-                            }))
-                        })
-                    })
-                    .child(button("select-none", "Deselect All", None, Btn::Ghost, n > 0, t).when(n > 0, |b| {
-                        b.on_click(cx.listener(move |this, _, _, cx| {
-                            this.m.set_visible(false);
-                            cx.notify();
-                        }))
-                    }))
-                    // Cleans what is selected in this category only; the bar at the bottom cleans everything.
-                    .child({
-                        let label = if in_category > 0 { format!("Clean {}", bytes(category_size)) } else { "Clean".to_string() };
-                        div().ml(pt(6.)).child(
-                            button("review-category", label, Some("trash"), Btn::Secondary, in_category > 0, t).when(in_category > 0, |b| {
-                                b.on_click(cx.listener(move |this, _, window, cx| this.open_confirm(Some(ci), window, cx)))
-                            }),
-                        )
-                    }),
             );
+
+        // These act on what the search and filters show, so they sit in the filter row.
+        let actions = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(pt(4.))
+            .child({
+                let enabled = shown > 0 && state != Check::On;
+                button("select-all", "Select All", None, Btn::Ghost, enabled, t).when(enabled, |b| {
+                    b.on_click(cx.listener(move |this, _, _, cx| {
+                        this.m.set_visible(true);
+                        cx.notify();
+                    }))
+                })
+            })
+            .child(button("select-none", "Deselect All", None, Btn::Ghost, n > 0, t).when(n > 0, |b| {
+                b.on_click(cx.listener(move |this, _, _, cx| {
+                    this.m.set_visible(false);
+                    cx.notify();
+                }))
+            }))
+            // Cleans what is selected in this category only; the bar at the bottom cleans everything.
+            .child({
+                let label = if in_category > 0 { format!("Clean {}", bytes(category_size)) } else { "Clean".to_string() };
+                div().ml(pt(6.)).child(
+                    button("review-category", label, Some("trash"), Btn::Secondary, in_category > 0, t).when(in_category > 0, |b| {
+                        b.on_click(cx.listener(move |this, _, window, cx| this.open_confirm(Some(ci), window, cx)))
+                    }),
+                )
+            });
 
         let table = if empty {
             div()
@@ -1255,7 +1257,7 @@ impl CleanerApp {
             .pt(TITLEBAR)
             .px(pt(24.))
             .child(header)
-            .when(!empty, |el| el.child(self.filter_bar(id == "large-files", shown, t, cx)))
+            .when(!empty, |el| el.child(self.filter_bar(id == "large-files", shown, actions, t, cx)))
             .child(
                 div()
                     .flex_1()
@@ -1270,7 +1272,7 @@ impl CleanerApp {
     }
 
     /// Search box and filters above the table.
-    fn filter_bar(&self, large_files: bool, shown: usize, t: &Theme, cx: &mut Context<Self>) -> Div {
+    fn filter_bar(&self, large_files: bool, shown: usize, actions: Div, t: &Theme, cx: &mut Context<Self>) -> Div {
         let total = self.m.cats[self.m.active].items.len();
         let query = self.m.query.clone();
         let caret = || div().w(pt(1.5)).h(pt(15.)).flex_none().bg(t.accent);
@@ -1371,6 +1373,7 @@ impl CleanerApp {
             .when(self.m.filter_active(), |el| {
                 el.child(div().flex_none().text_size(pt(12.)).text_color(t.text_3).child(format!("{shown} of {total} shown")))
             })
+            .child(actions)
     }
 
     fn table_head(&self, t: &Theme, cx: &mut Context<Self>) -> Div {
