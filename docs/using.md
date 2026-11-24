@@ -68,6 +68,10 @@ Every picture is the same window at 100% zoom. The whole interface can also be s
 
 From version 1.3.0, Mac Cleaner keeps itself up to date. (Versions 1.2.0 and earlier have to be updated by hand, once.)
 
+![The update dialog with release notes, Later and Update Now](screenshots/update.png)
+
+![About Mac Cleaner with Update to 1.4.0 and the automatic check switch](screenshots/about-update.png)
+
 - A few seconds after launch, and once a day while it stays open, the app asks GitHub for the latest release. When there is a newer one, an **Update Available** button appears in the top-right corner. Nothing is downloaded until you click it.
 - The button opens a dialog with the release notes. **Update Now** downloads the DMG with a progress bar, checks its signature, quits, swaps the app in Applications and opens the new version. **Later** closes the dialog; the button stays.
 - **Check for Updates…** in the Mac Cleaner menu, or the button in About Mac Cleaner, checks right away. About Mac Cleaner also has the **Check for updates automatically** switch.
