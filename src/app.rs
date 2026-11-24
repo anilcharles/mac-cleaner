@@ -527,6 +527,15 @@ impl Model {
         }
     }
 
+    /// Labels an item that could not be moved, so it no longer looks like it is waiting to go,
+    /// and unticks it so the next clean doesn't try it again.
+    pub fn mark_failed(&mut self, path: &str) {
+        if let Some(node) = self.nodes.get_mut(path) {
+            node.note = Some("Couldn't be moved".to_string());
+        }
+        self.selected.remove(path);
+    }
+
     /// Takes an item that was moved to the Trash out of the results, at any depth, and
     /// shrinks the folders above it by its size.
     pub fn remove_cleaned(&mut self, path: &str) {
@@ -565,9 +574,9 @@ impl Model {
     }
 }
 
-/// Large Files lists the user's own files; every other category is junk by nature.
+/// These list the user's own files and apps; every other category is junk by nature.
 pub fn is_personal(info: &SourceInfo) -> bool {
-    info.id == "large-files"
+    matches!(info.id, "large-files" | "duplicates" | "applications" | "ios-backups")
 }
 
 /* ---------- Formatting ---------- */

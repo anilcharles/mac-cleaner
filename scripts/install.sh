@@ -1,5 +1,6 @@
 #!/bin/sh
-# Builds the app, quits any running copy, replaces /Applications/Mac Cleaner.app and opens it.
+# Builds the app, quits any running copy, replaces /Applications/Mac Cleaner.app, removes the
+# built copy from target/ and opens the installed app.
 set -e
 cd "$(dirname "$0")/.."
 
@@ -28,6 +29,10 @@ ditto "$APP" "/Applications/Mac Cleaner.app.new"
 rm -rf "/Applications/Mac Cleaner.app"
 mv "/Applications/Mac Cleaner.app.new" "$DEST"
 touch "$DEST"   # nudges Finder and the Dock to pick up a changed icon
+
+# Only the /Applications copy should exist, so Spotlight and Launchpad don't list two apps.
+# The compiled code in target/ stays, so the next build is still quick.
+rm -rf "$APP"
 
 open "$DEST"
 echo "Installed and opened $DEST"

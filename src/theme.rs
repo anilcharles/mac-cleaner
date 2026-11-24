@@ -115,6 +115,12 @@ pub fn tile_colors(category_id: &str) -> (u32, u32) {
         "device-support" => (0xd98af5, 0xa64bd6),
         "installers" => (0x6ade86, 0x28b14c),
         "large-files" => (0xff8a9e, 0xff375f),
+        "mail-downloads" => (0x6cc4ff, 0x1f8ef1),
+        "ios-updates" => (0xa3d977, 0x5fae2e),
+        "ios-backups" => (0x9fabbd, 0x5f6d82),
+        "applications" => (0x7f9cff, 0x4a5cf0),
+        "app-leftovers" => (0xe9a4d6, 0xc25aa8),
+        "duplicates" => (0xffd56b, 0xf0a500),
         _ => (0x5ac8fa, 0x007aff),
     }
 }

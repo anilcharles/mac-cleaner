@@ -116,3 +116,81 @@ pub fn volume_space(path: &std::path::Path) -> Option<(String, u64, u64)> {
         Some((name.unwrap_or_else(|| "Macintosh HD".into()), total?, available?))
     }
 }
+
+/// The bundle identifier of the app (or other bundle) at `path`. Safe to call from any thread.
+pub fn bundle_identifier(path: &std::path::Path) -> Option<String> {
+    use std::os::unix::ffi::OsStrExt;
+    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    unsafe {
+        let pool: *mut Object = msg_send![class!(NSAutoreleasePool), new];
+        let ns_path: *mut Object = msg_send![class!(NSString), stringWithUTF8String: c_path.as_ptr()];
+        let bundle: *mut Object = if ns_path.is_null() { std::ptr::null_mut() } else { msg_send![class!(NSBundle), bundleWithPath: ns_path] };
+        let id: *mut Object = if bundle.is_null() { std::ptr::null_mut() } else { msg_send![bundle, bundleIdentifier] };
+        let out = if id.is_null() {
+            None
+        } else {
+            let utf8: *const std::os::raw::c_char = msg_send![id, UTF8String];
+            (!utf8.is_null()).then(|| std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned())
+        };
+        let _: () = msg_send![pool, drain];
+        out.filter(|s| !s.is_empty())
+    }
+}
+
+/// Paths of the programs this account is running.
+pub fn running_executables() -> Vec<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut pids = vec![0 as libc::c_int; 8192];
+    let bytes = (pids.len() * std::mem::size_of::<libc::c_int>()) as libc::c_int;
+    let n = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), bytes) };
+    if n <= 0 {
+        return vec![];
+    }
+    pids.truncate(n as usize);
+    let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    pids.into_iter()
+        .filter_map(|pid| {
+            let len = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
+            (len > 0).then(|| std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&buf[..len as usize])))
+        })
+        .collect()
+}
+
+/// The icon Finder shows for `path`, as PNG bytes `px` pixels square.
+pub fn file_icon_png(path: &std::path::Path, px: f64) -> Option<Vec<u8>> {
+    use std::os::unix::ffi::OsStrExt;
+    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    unsafe {
+        let pool: *mut Object = msg_send![class!(NSAutoreleasePool), new];
+        let nil: *mut Object = std::ptr::null_mut();
+        let ns_path: *mut Object = msg_send![class!(NSString), stringWithUTF8String: c_path.as_ptr()];
+        let workspace: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let image: *mut Object = if ns_path.is_null() { nil } else { msg_send![workspace, iconForFile: ns_path] };
+        let mut out = None;
+        if !image.is_null() {
+            let size = NSSize { width: px, height: px };
+            let _: () = msg_send![image, setSize: size];
+            let mut rect = NSRect { x: 0., y: 0., size };
+            let cg: *mut std::ffi::c_void = msg_send![image, CGImageForProposedRect: &mut rect context: nil hints: nil];
+            if !cg.is_null() {
+                let rep: *mut Object = msg_send![class!(NSBitmapImageRep), alloc];
+                let rep: *mut Object = msg_send![rep, initWithCGImage: cg];
+                if !rep.is_null() {
+                    let props: *mut Object = msg_send![class!(NSDictionary), dictionary];
+                    // NSBitmapImageFileTypePNG
+                    let data: *mut Object = msg_send![rep, representationUsingType: 4u64 properties: props];
+                    if !data.is_null() {
+                        let len: usize = msg_send![data, length];
+                        let bytes: *const u8 = msg_send![data, bytes];
+                        if !bytes.is_null() && len > 0 {
+                            out = Some(std::slice::from_raw_parts(bytes, len).to_vec());
+                        }
+                    }
+                    let _: () = msg_send![rep, release];
+                }
+            }
+        }
+        let _: () = msg_send![pool, drain];
+        out
+    }
+}

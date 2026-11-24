@@ -74,19 +74,44 @@ fn rows(id: &str) -> Vec<Row> {
             ("~/Documents", "backup-2024.zip", 2_100 * MB, 400, false),
             ("~/Downloads", "sample-dataset.parquet", 780 * MB, 8, false),
         ],
+        "applications" => vec![
+            ("6 support files · /Applications", "Blender", 2_130 * MB, 20, false),
+            ("4 support files · /Applications", "Figma", 640 * MB, 90, false),
+            ("3 support files · /Applications", "zoom.us", 410 * MB, 200, false),
+            ("/Applications", "The Unarchiver", 38 * MB, 400, false),
+        ],
+        "app-leftovers" => vec![
+            ("~/Library/Containers", "net.whatsapp.WhatsApp", 1_240 * MB, 120, true),
+            ("~/Library/Application Support", "com.adobe.dunamis", 115 * MB, 300, true),
+            ("~/Library/Group Containers", "group.com.skype.skype", 64 * MB, 250, true),
+            ("~/Library/HTTPStorages", "us.zoom.xos", 9 * MB, 210, true),
+            ("~/Library/Preferences", "org.videolan.vlc.plist", MB / 20, 400, false),
+        ],
+        "duplicates" => vec![
+            ("~/Desktop · same as ~/Movies/Family Trip 4K.mov", "Family Trip 4K copy.mov", 6_500 * MB, 90, false),
+            ("~/Downloads · same as ~/Documents/Taxes 2024.pdf", "Taxes 2024 (1).pdf", 12 * MB, 30, false),
+            ("~/Desktop · same as ~/Pictures/Wallpaper.heic", "Wallpaper.heic", 4 * MB, 15, false),
+        ],
+        "ios-backups" => vec![("iPhone · ~/Library/Application Support/MobileSync/Backup", "My iPhone", 48_200 * MB, 60, true)],
         _ => vec![],
     }
 }
 
 /// Where a row lives on the (imaginary) disk.
 fn path_of(location: &str, name: &str) -> String {
-    let folder = location.rsplit(" · ").next().unwrap_or(location);
+    let folder = match location.split_once(" · same as ") {
+        Some((folder, _)) => folder,
+        None => location.rsplit(" · ").next().unwrap_or(location),
+    };
     let leaf = match name {
         "npm cache" => "_cacache",
         "Gradle caches" => "caches",
         "Cargo registry cache" => "cache",
         other => other,
     };
+    if folder.ends_with("Applications") {
+        return format!("{folder}/{leaf}.app");
+    }
     format!("{}/{leaf}", folder.replacen('~', HOME, 1))
 }
 
@@ -98,14 +123,22 @@ pub fn categories(now_ms: u64) -> Vec<Category> {
                 .into_iter()
                 .map(|(location, name, size, days, is_dir)| {
                     let apple = info.id == "caches" && name.starts_with("com.apple.");
+                    // One leftover shows the label macOS-protected items get.
+                    let protected = info.id == "app-leftovers" && name == "group.com.skype.skype";
                     Item {
                         path: path_of(location, name),
                         name: name.to_string(),
                         location: location.to_string(),
                         size,
                         modified: Some(now_ms.saturating_sub(days * DAY)),
-                        selected: info.risk == Risk::Safe && !apple,
-                        note: apple.then(|| "macOS system cache".to_string()),
+                        selected: info.risk == Risk::Safe && !apple && !protected,
+                        note: if apple {
+                            Some("macOS system cache".to_string())
+                        } else if protected {
+                            Some("Protected by macOS".to_string())
+                        } else {
+                            None
+                        },
                         is_dir,
                     }
                 })
