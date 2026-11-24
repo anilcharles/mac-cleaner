@@ -10,7 +10,7 @@ use gpui::{
     Div, ElementId, FocusHandle, FontWeight, Hsla, KeyDownEvent, MouseButton, MouseDownEvent, Pixels, Point,
     ScrollStrategy, SharedString, Size, Stateful, Subscription, Transformation, UniformListScrollHandle, Window,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::process::{Command, Stdio};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -34,6 +34,7 @@ enum Cmd {
     Ignore(String),
     Age(Age),
     LargeMin(u64),
+    Theme(ThemeMode),
 }
 
 struct PopItem {
@@ -69,6 +70,8 @@ pub struct CleanerApp {
     /// The Kind column is dropped in a narrow window.
     show_kind: bool,
     app_icon: Arc<gpui::Image>,
+    /// Icons of listed apps, read from macOS the first time each row is drawn.
+    app_icons: std::cell::RefCell<HashMap<String, Option<Arc<gpui::Image>>>>,
     /// The walkthrough is showing made-up results (`MAC_CLEANER_SAMPLE`), for README screenshots.
     #[cfg(debug_assertions)]
     sample: bool,
@@ -114,6 +117,7 @@ impl CleanerApp {
                 gpui::ImageFormat::Png,
                 include_bytes!("../assets/icon/AppIcon-256.png").to_vec(),
             )),
+            app_icons: Default::default(),
             #[cfg(debug_assertions)]
             sample: false,
             _appearance: appearance,
@@ -245,8 +249,12 @@ impl CleanerApp {
                 this.m.report = Some(report);
                 if scope.is_some() {
                     // Only one category was cleaned: keep the rest of the results to go back to.
-                    for p in cleaned.iter().filter(|p| std::fs::symlink_metadata(p).is_err()) {
-                        this.m.remove_cleaned(p);
+                    for p in &cleaned {
+                        if std::fs::symlink_metadata(p).is_err() {
+                            this.m.remove_cleaned(p);
+                        } else if this.m.report.as_ref().is_some_and(|r| r.failures.iter().any(|f| &f.path == p)) {
+                            this.m.mark_failed(p);
+                        }
                     }
                     this.m.cursor = None;
                 } else {
@@ -382,6 +390,7 @@ impl CleanerApp {
                     self.show_toast("Couldn't hide this item.", cx);
                 }
             }
+            Cmd::Theme(mode) => self.set_theme(mode, cx),
             Cmd::Age(age) => {
                 self.m.age = age;
                 self.filter_changed(cx);
@@ -704,6 +713,20 @@ impl CleanerApp {
             forward(&this, cx);
             wait(250).await;
             snap("4b-large-files");
+            for (id, name) in [("applications", "4b2-applications"), ("app-leftovers", "4b3-leftovers"), ("duplicates", "4b4-duplicates")] {
+                this.update(cx, |this, cx| {
+                    if let Some(ci) = this.m.cats.iter().position(|c| c.info.id == id) {
+                        this.m.active = ci;
+                        this.list_scroll = UniformListScrollHandle::new();
+                        cx.notify();
+                    }
+                })
+                .ok();
+                wait(500).await;
+                forward(&this, cx);
+                wait(250).await;
+                snap(name);
+            }
             this.update(cx, |this, cx| {
                 this.m.active = this.m.cats.iter().position(|c| !c.items.is_empty()).unwrap_or(0);
                 this.m.query = "com".into();
@@ -1094,7 +1117,7 @@ impl CleanerApp {
                                 .mt(pt(2.))
                                 .text_size(pt(12.))
                                 .text_color(t.text_3)
-                                .child(format!("Plus {} of large files to review", bytes(personal))),
+                                .child(format!("Plus {} more to review", bytes(personal))),
                         )
                     }),
             )
@@ -1136,16 +1159,16 @@ impl CleanerApp {
         // Select All and Deselect All act on what the search and filters show.
         let (n, state) = self.m.visible_selection();
         let shown = self.m.visible(ci).len();
-        let (in_category, category_size, _) = self.m.cat_selection(ci);
         let cat = &self.m.cats[ci];
         let empty = cat.items.is_empty();
         let no_match = !empty && shown == 0;
         let (id, icon_name, title, description, risk) =
             (cat.info.id, cat.info.icon, cat.info.title, cat.info.description, cat.info.risk);
 
+        // The tile lines up with the title; the description gets the full width beside it.
         let header = div()
             .flex()
-            .items_center()
+            .items_start()
             .gap(pt(16.))
             .pb(pt(20.))
             .child(tile_lg(id, icon_name))
@@ -1166,37 +1189,29 @@ impl CleanerApp {
                             }),
                     )
                     .child(div().mt(pt(3.)).text_color(t.text_2).line_height(pt(19.)).child(description)),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .gap(pt(4.))
-                    .child({
-                        let enabled = shown > 0 && state != Check::On;
-                        button("select-all", "Select All", None, Btn::Ghost, enabled, t).when(enabled, |b| {
-                            b.on_click(cx.listener(move |this, _, _, cx| {
-                                this.m.set_visible(true);
-                                cx.notify();
-                            }))
-                        })
-                    })
-                    .child(button("select-none", "Deselect All", None, Btn::Ghost, n > 0, t).when(n > 0, |b| {
-                        b.on_click(cx.listener(move |this, _, _, cx| {
-                            this.m.set_visible(false);
-                            cx.notify();
-                        }))
-                    }))
-                    // Cleans what is selected in this category only; the bar at the bottom cleans everything.
-                    .child({
-                        let label = if in_category > 0 { format!("Clean {}", bytes(category_size)) } else { "Clean".to_string() };
-                        div().ml(pt(6.)).child(
-                            button("review-category", label, Some("trash"), Btn::Secondary, in_category > 0, t).when(in_category > 0, |b| {
-                                b.on_click(cx.listener(move |this, _, window, cx| this.open_confirm(Some(ci), window, cx)))
-                            }),
-                        )
-                    }),
             );
+
+        // These act on what the search and filters show, so they sit in the filter row.
+        let actions = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(pt(4.))
+            .child({
+                let enabled = shown > 0 && state != Check::On;
+                button("select-all", "Select All", None, Btn::Ghost, enabled, t).when(enabled, |b| {
+                    b.on_click(cx.listener(move |this, _, _, cx| {
+                        this.m.set_visible(true);
+                        cx.notify();
+                    }))
+                })
+            })
+            .child(button("select-none", "Deselect All", None, Btn::Ghost, n > 0, t).when(n > 0, |b| {
+                b.on_click(cx.listener(move |this, _, _, cx| {
+                    this.m.set_visible(false);
+                    cx.notify();
+                }))
+            }));
 
         let table = if empty {
             div()
@@ -1255,7 +1270,7 @@ impl CleanerApp {
             .pt(TITLEBAR)
             .px(pt(24.))
             .child(header)
-            .when(!empty, |el| el.child(self.filter_bar(id == "large-files", shown, t, cx)))
+            .when(!empty, |el| el.child(self.filter_bar(id == "large-files", shown, actions, t, cx)))
             .child(
                 div()
                     .flex_1()
@@ -1270,7 +1285,7 @@ impl CleanerApp {
     }
 
     /// Search box and filters above the table.
-    fn filter_bar(&self, large_files: bool, shown: usize, t: &Theme, cx: &mut Context<Self>) -> Div {
+    fn filter_bar(&self, large_files: bool, shown: usize, actions: Div, t: &Theme, cx: &mut Context<Self>) -> Div {
         let total = self.m.cats[self.m.active].items.len();
         let query = self.m.query.clone();
         let caret = || div().w(pt(1.5)).h(pt(15.)).flex_none().bg(t.accent);
@@ -1371,6 +1386,7 @@ impl CleanerApp {
             .when(self.m.filter_active(), |el| {
                 el.child(div().flex_none().text_size(pt(12.)).text_color(t.text_3).child(format!("{shown} of {total} shown")))
             })
+            .child(actions)
     }
 
     fn table_head(&self, t: &Theme, cx: &mut Context<Self>) -> Div {
@@ -1403,6 +1419,23 @@ impl CleanerApp {
             div().flex().justify_end().child(sort(SortKey::Size, "SIZE", true, cx)),
             div(),
         )
+    }
+
+    /// The real icon of an app listed under Applications, cached after the first read.
+    fn icon_of_app(&self, path: &str) -> Option<Arc<gpui::Image>> {
+        self.app_icons
+            .borrow_mut()
+            .entry(path.to_string())
+            .or_insert_with(|| {
+                // 64 px stays sharp at the row's size on a Retina screen, up to 150% zoom.
+                let path = std::path::Path::new(path);
+                // A missing app would get macOS's blank-document icon; the app glyph reads better.
+                path.exists()
+                    .then(|| crate::native::file_icon_png(path, 64.))
+                    .flatten()
+                    .map(|png| Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, png)))
+            })
+            .clone()
     }
 
     fn row(&self, ix: usize, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
@@ -1466,11 +1499,13 @@ impl CleanerApp {
                     .gap(pt(6.))
                     .min_w_0()
                     .child(disclosure)
-                    .child(
-                        div()
-                            .mr(pt(4.))
-                            .child(icon(if is_dir { "folder" } else { "file" }, 18., if is_dir { t.folder } else { t.text_3 })),
-                    )
+                    .child(div().mr(pt(4.)).child(match (!is_dir && path.ends_with(".app")).then(|| self.icon_of_app(path)).flatten() {
+                        Some(app) => gpui::img(app).size(pt(22.)).into_any_element(),
+                        None => {
+                            let glyph = if is_dir { "folder" } else if path.ends_with(".app") { "app" } else { "file" };
+                            icon(glyph, 18., if is_dir { t.folder } else { t.text_3 }).into_any_element()
+                        }
+                    }))
                     .child(
                         div()
                             .flex_1()
@@ -1513,8 +1548,10 @@ impl CleanerApp {
                 let on = state == Check::On;
                 let at_cursor = self.m.cursor.as_ref() == Some(path);
                 let menu_path = path.clone();
+                // Judged by the real file name: an app is listed as "Blender", its folder is "Blender.app".
+                let file_name = path.rsplit('/').next().unwrap_or(&node.name);
                 let kind_cell = self.show_kind.then(|| {
-                    div().ellipsis().text_size(pt(12.)).text_color(t.text_2).child(kind(&node.name, is_dir)).into_any_element()
+                    div().ellipsis().text_size(pt(12.)).text_color(t.text_2).child(kind(file_name, is_dir)).into_any_element()
                 });
                 columns(
                     div()
@@ -1581,12 +1618,17 @@ impl CleanerApp {
                     |el| el.child("Select items to clean"),
                 ),
             )
+            // The open category's selection only. Named after it, so it reads apart from Clean All.
+            .when_some(self.m.cats.get(self.m.active), |el, cat| {
+                let ci = self.m.active;
+                let (n, cat_size, _) = self.m.cat_selection(ci);
+                let label = if n > 0 { format!("Clean {} · {}", cat.info.title, bytes(cat_size)) } else { format!("Clean {}", cat.info.title) };
+                el.child(button("review-category", label, None, Btn::Secondary, n > 0, t).when(n > 0, |b| {
+                    b.on_click(cx.listener(move |this, _, window, cx| this.open_confirm(Some(ci), window, cx)))
+                }))
+            })
             .child(
-                button("rescan", "Rescan", Some("refresh"), Btn::Secondary, true, t)
-                    .on_click(cx.listener(|this, _, _, cx| this.start_scan(cx))),
-            )
-            .child(
-                button("review", if count > 0 { format!("Clean {}", bytes(size)) } else { "Clean".to_string() }, Some("trash"), Btn::Primary, count > 0, t).when(count > 0, |b| {
+                button("review", if count > 0 { format!("Clean All · {}", bytes(size)) } else { "Clean All".to_string() }, Some("trash"), Btn::Primary, count > 0, t).when(count > 0, |b| {
                     b.on_click(cx.listener(|this, _, window, cx| this.open_confirm(None, window, cx)))
                 }),
             )
@@ -1727,11 +1769,45 @@ impl CleanerApp {
     }
 
     /// Light / Dark / Auto segmented control in the top-right corner.
-    fn theme_switch(&self, t: &Theme, cx: &mut Context<Self>) -> Div {
-        let segment = |mode: ThemeMode, icon_name: &'static str, id: &'static str, cx: &mut Context<Self>| {
-            let active = self.theme_mode == mode;
+    /// Scans again. It sits with the other window-wide controls, away from the cleaning actions.
+    fn rescan_button(&self, t: &Theme, cx: &mut Context<Self>) -> Div {
+        div().p(pt(2.)).rounded(pt(8.)).bg(t.border).child(
             div()
-                .id(id)
+                .id("rescan")
+                .h(pt(24.))
+                .px(pt(8.))
+                .rounded(pt(6.))
+                .flex()
+                .items_center()
+                .gap(pt(5.))
+                .cursor_pointer()
+                .hover(|s| s.bg(t.hover))
+                .text_size(pt(11.5))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(t.text_2)
+                .child(icon("refresh", 13., t.text_2))
+                .child("Rescan")
+                .on_click(cx.listener(|this, _, _, cx| this.start_scan(cx))),
+        )
+    }
+
+    /// One button showing the current appearance; it opens a menu to pick Light, Dark or Match System.
+    fn theme_switch(&self, t: &Theme, cx: &mut Context<Self>) -> Div {
+        let current = self.theme_mode;
+        let icon_name = match current {
+            ThemeMode::Light => "sun",
+            ThemeMode::Dark => "moon",
+            ThemeMode::System => "auto",
+        };
+        let items = move || -> Vec<PopItem> {
+            [(ThemeMode::Light, "Light"), (ThemeMode::Dark, "Dark"), (ThemeMode::System, "Match System")]
+                .into_iter()
+                .map(|(mode, label)| PopItem { label: label.into(), checked: mode == current, cmd: Cmd::Theme(mode) })
+                .collect()
+        };
+        div().p(pt(2.)).rounded(pt(8.)).bg(t.border).child(
+            div()
+                .id("theme")
                 .w(pt(32.))
                 .h(pt(24.))
                 .rounded(pt(6.))
@@ -1739,22 +1815,16 @@ impl CleanerApp {
                 .items_center()
                 .justify_center()
                 .cursor_pointer()
-                .when(active, |el| el.bg(t.surface).shadow(small_shadow(t)))
-                .when(!active, |el| el.hover(|s| s.bg(t.hover)))
-                .child(icon(icon_name, 14., if active { t.text } else { t.text_3 }))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.set_theme(mode, cx);
-                }))
-        };
-        div()
-            .flex()
-            .gap(pt(2.))
-            .p(pt(2.))
-            .rounded(pt(8.))
-            .bg(t.border)
-            .child(segment(ThemeMode::Light, "sun", "theme-light", cx))
-            .child(segment(ThemeMode::Dark, "moon", "theme-dark", cx))
-            .child(segment(ThemeMode::System, "auto", "theme-auto", cx))
+                .hover(|s| s.bg(t.hover))
+                .child(icon(icon_name, 14., t.text_2))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                        this.popup = Some(Popup { pos: event.position, items: items() });
+                        cx.notify();
+                    }),
+                ),
+        )
     }
 
     /// − 100% + control next to the theme switch. Clicking the percentage goes back to 100%.
@@ -2163,6 +2233,7 @@ impl Render for CleanerApp {
                     .flex()
                     .items_center()
                     .gap(pt(8.))
+                    .when(self.m.screen == Screen::Results, |el| el.child(self.rescan_button(&t, cx)))
                     .child(self.zoom_switch(&t, cx))
                     .child(self.theme_switch(&t, cx)),
             )

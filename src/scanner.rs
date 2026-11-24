@@ -40,6 +40,15 @@ enum Layout {
     BuildFolders,
     /// Simulator devices: every folder in the root, named from its `device.plist`.
     Devices,
+    /// Device backups made by Finder: every folder in the root, named from its `Info.plist`.
+    Backups,
+    /// Apps in the root (and in plain folders one level down) that the user can remove
+    /// without a password. Each one is offered together with its support files in ~/Library.
+    Apps,
+    /// Entries in the root named after an app that is no longer installed (see `apps`).
+    Leftovers,
+    /// Files under the root (the home folder) that have an identical copy elsewhere (see `duplicates`).
+    Duplicates,
 }
 
 /// Files at least this big (on disk) are listed under Large Files. The user can change it.
@@ -84,7 +93,7 @@ impl ScanCtl {
         self.cancel.load(Ordering::Relaxed)
     }
 
-    fn tick(&self) {
+    pub(crate) fn tick(&self) {
         self.checked.fetch_add(1, Ordering::Relaxed);
     }
 }
@@ -314,6 +323,60 @@ fn sources(home: &Path) -> Vec<Source> {
             }],
         },
         Source {
+            id: "mail-downloads",
+            title: "Mail Downloads",
+            description: "Copies of attachments you opened in Mail. The attachments stay in your mail.",
+            icon: "mail",
+            risk: Risk::Safe,
+            roots: vec![children("Library/Containers/com.apple.mail/Data/Library/Mail Downloads")],
+        },
+        Source {
+            id: "ios-updates",
+            title: "iOS Software Updates",
+            description: "Downloaded system updates for iPhone and iPad. Finder downloads them again when needed.",
+            icon: "download",
+            risk: Risk::Safe,
+            roots: ["iPhone", "iPad", "iPod"]
+                .iter()
+                .map(|d| Root {
+                    path: h(&format!("Library/iTunes/{d} Software Updates")),
+                    layout: Layout::Extensions(&["ipsw"]),
+                })
+                .collect(),
+        },
+        Source {
+            id: "ios-backups",
+            title: "Device Backups",
+            description: "iPhone and iPad backups made with Finder. Keep the latest one of each device unless it is backed up to iCloud.",
+            icon: "phone",
+            risk: Risk::Review,
+            roots: vec![Root { path: h("Library/Application Support/MobileSync/Backup"), layout: Layout::Backups }],
+        },
+        Source {
+            id: "applications",
+            title: "Applications",
+            description: "Apps you installed, with their settings and support files. Removing one moves the app and its files to the Trash.",
+            icon: "app",
+            risk: Risk::Review,
+            roots: crate::apps::app_folders(home).into_iter().map(|path| Root { path, layout: Layout::Apps }).collect(),
+        },
+        Source {
+            id: "app-leftovers",
+            title: "App Leftovers",
+            description: "Settings and support files of apps that are no longer installed. Anything changed in the last 30 days is left out.",
+            icon: "box",
+            risk: Risk::Review,
+            roots: crate::apps::LEFTOVER_DIRS.iter().map(|d| Root { path: h(d), layout: Layout::Leftovers }).collect(),
+        },
+        Source {
+            id: "duplicates",
+            title: "Duplicate Files",
+            description: "Files of 1 MB or more with an identical copy elsewhere in your folders. The oldest copy is kept and never listed.",
+            icon: "copy",
+            risk: Risk::Review,
+            roots: vec![Root { path: home.to_path_buf(), layout: Layout::Duplicates }],
+        },
+        Source {
             id: "large-files",
             title: "Large Files & Folders",
             description: "The biggest files in your home folder, and the folders that hold them. These are your own files, not caches, so check each one.",
@@ -340,7 +403,7 @@ fn info(s: &Source) -> SourceInfo {
 
 /// Size on disk (allocated blocks), not following symlinks. A symlink counts as the
 /// link itself, which is all that moving it to the Trash would take.
-fn disk_size(path: &Path, ctl: Option<&ScanCtl>) -> u64 {
+pub(crate) fn disk_size(path: &Path, ctl: Option<&ScanCtl>) -> u64 {
     WalkDir::new(path)
         .follow_links(false)
         .follow_root_links(false)
@@ -358,7 +421,7 @@ fn disk_size(path: &Path, ctl: Option<&ScanCtl>) -> u64 {
         .sum()
 }
 
-fn modified_ms(path: &Path) -> Option<u64> {
+pub(crate) fn modified_ms(path: &Path) -> Option<u64> {
     fs::symlink_metadata(path)
         .ok()?
         .modified()
@@ -368,7 +431,7 @@ fn modified_ms(path: &Path) -> Option<u64> {
         .map(|d| d.as_millis() as u64)
 }
 
-fn tilde(path: &Path, home: &Path) -> String {
+pub(crate) fn tilde(path: &Path, home: &Path) -> String {
     match path.strip_prefix(home) {
         Ok(rest) if rest.as_os_str().is_empty() => "~".into(),
         Ok(rest) => format!("~/{}", rest.display()),
@@ -376,7 +439,7 @@ fn tilde(path: &Path, home: &Path) -> String {
     }
 }
 
-fn has_extension(path: &Path, exts: &[&str]) -> bool {
+pub(crate) fn has_extension(path: &Path, exts: &[&str]) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .map(|e| exts.iter().any(|x| x.eq_ignore_ascii_case(e)))
@@ -401,6 +464,28 @@ fn candidates(root: &Root, home: &Path, ctl: &ScanCtl) -> Vec<Candidate> {
             }
         }
         Layout::LargeFiles => large_file_items(&root.path, large_file_min(), ctl),
+        Layout::Apps => crate::apps::app_items(&root.path, home),
+        Layout::Leftovers => crate::apps::leftover_items(&root.path, home),
+        Layout::Duplicates => crate::duplicates::duplicate_items(&root.path, ctl),
+        Layout::Backups => {
+            let Ok(entries) = fs::read_dir(&root.path) else { return vec![] };
+            let parent = tilde(&root.path, home);
+            entries
+                .filter_map(Result::ok)
+                .map(|e| e.path())
+                .filter(|p| is_real_dir(p))
+                .map(|dir| {
+                    let id = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    let plist = dir.join("Info.plist");
+                    let name = plist_string(&plist, "Device Name").unwrap_or(id);
+                    let location = match plist_string(&plist, "Product Name") {
+                        Some(product) => format!("{product} · {parent}"),
+                        None => parent.clone(),
+                    };
+                    (dir, name, Some(location))
+                })
+                .collect()
+        }
         Layout::BuildFolders => build_folder_items(&root.path, ctl),
         Layout::Devices => {
             let Ok(entries) = fs::read_dir(&root.path) else { return vec![] };
@@ -444,21 +529,32 @@ fn scan_source(source: &Source, home: &Path, ignored: &HashSet<String>, ctl: &Sc
         .into_par_iter()
         .filter(|(path, name, _)| name != OWN_ID && !ignored.contains(path.to_string_lossy().as_ref()))
         .filter_map(|(path, name, location)| {
-            let size = disk_size(&path, Some(ctl));
+            let app = crate::apps::is_listed_app(&path, home);
+            // An app is measured with its support files, which go with it.
+            let support: u64 = if app {
+                crate::apps::support_files(&path, home).iter().map(|p| disk_size(p, Some(ctl))).sum()
+            } else {
+                0
+            };
+            let size = disk_size(&path, Some(ctl)) + support;
             if size == 0 {
                 return None;
             }
             let apple = source.id == "caches" && name.starts_with("com.apple.");
+            let protected = source.id == "app-leftovers" && crate::apps::is_protected(&path);
             let note = if apple {
                 Some("macOS system cache".to_string())
+            } else if protected {
+                Some("Protected by macOS".to_string())
             } else {
                 None
             };
             Some(Item {
-                is_dir: is_real_dir(&path),
+                // An app is offered whole: opening it would offer the files inside the bundle.
+                is_dir: is_real_dir(&path) && !app,
                 location: location.unwrap_or_else(|| tilde(path.parent().unwrap_or(&path), home)),
                 modified: modified_ms(&path),
-                selected: source.risk == Risk::Safe && !apple,
+                selected: source.risk == Risk::Safe && !apple && !protected,
                 note,
                 path: path.to_string_lossy().into_owned(),
                 name,
@@ -529,7 +625,7 @@ pub fn disk_space() -> Option<DiskSpace> {
 }
 
 /// One string value from a property list (binary or XML), read with the system's `plutil`.
-fn plist_string(plist: &Path, key: &str) -> Option<String> {
+pub(crate) fn plist_string(plist: &Path, key: &str) -> Option<String> {
     let out = std::process::Command::new("/usr/bin/plutil")
         .args(["-extract", key, "raw", "-o", "-"])
         .arg(plist)
@@ -549,11 +645,11 @@ fn runtime_label(runtime: &str) -> String {
 }
 
 /// A directory that is not a symlink.
-fn is_real_dir(path: &Path) -> bool {
+pub(crate) fn is_real_dir(path: &Path) -> bool {
     fs::symlink_metadata(path).map(|m| m.is_dir()).unwrap_or(false)
 }
 
-fn is_symlink(path: &Path) -> bool {
+pub(crate) fn is_symlink(path: &Path) -> bool {
     fs::symlink_metadata(path)
         .map(|m| m.file_type().is_symlink())
         .unwrap_or(false)
@@ -561,7 +657,7 @@ fn is_symlink(path: &Path) -> bool {
 
 /// True when `path`, or any folder between it and the home folder, is a symlink.
 /// The home folder itself is not checked.
-fn reached_through_symlink(path: &Path, home: &Path) -> bool {
+pub(crate) fn reached_through_symlink(path: &Path, home: &Path) -> bool {
     let mut current = Some(path);
     while let Some(p) = current {
         if p == home {
@@ -597,15 +693,27 @@ fn is_item(sources: &[Source], path: &Path, home: &Path) -> bool {
             is_large_file(path, &root.path, min) || is_large_file_folder(path, &root.path, min)
         }
         Layout::BuildFolders => is_build_folder(path, &root.path),
-        Layout::Devices => {
+        Layout::Devices | Layout::Backups => {
             path.parent() == Some(root.path.as_path())
                 && is_real_dir(path)
                 && !reached_through_symlink(&root.path, home)
         }
+        Layout::Apps => crate::apps::is_removable_app(path, &root.path),
+        Layout::Leftovers => {
+            path.parent() == Some(root.path.as_path())
+                && !reached_through_symlink(&root.path, home)
+                && crate::apps::is_leftover(path)
+        }
+        Layout::Duplicates => crate::duplicates::is_offered_copy(path, home),
     })
 }
 
-fn is_package(name: &str) -> bool {
+/// Items whose insides are never offered on their own: apps, whose bundle would break.
+fn whole_only(path: &Path, home: &Path) -> bool {
+    crate::apps::is_listed_app(path, home)
+}
+
+pub(crate) fn is_package(name: &str) -> bool {
     Path::new(name)
         .extension()
         .and_then(|e| e.to_str())
@@ -614,12 +722,12 @@ fn is_package(name: &str) -> bool {
 }
 
 /// Folders the large-file scan never enters.
-fn skip_for_large_files(name: &str, depth: usize) -> bool {
+pub(crate) fn skip_for_large_files(name: &str, depth: usize) -> bool {
     (depth == 1 && name == "Library") || name.starts_with('.') || name == "node_modules" || is_package(name)
 }
 
 /// What kind of build folder `dir` is, judged by its name and the project file next to it.
-fn build_kind(dir: &Path) -> Option<&'static str> {
+pub(crate) fn build_kind(dir: &Path) -> Option<&'static str> {
     let name = dir.file_name()?.to_str()?;
     let parent = dir.parent()?;
     BUILD_KINDS
@@ -630,7 +738,7 @@ fn build_kind(dir: &Path) -> Option<&'static str> {
 
 /// True when a folder between `home` and `path` (not `path` itself) is a build folder.
 /// Such files belong to Project Build Folders, not Large Files.
-fn inside_build_folder(path: &Path, home: &Path) -> bool {
+pub(crate) fn inside_build_folder(path: &Path, home: &Path) -> bool {
     let mut dir = path.parent();
     while let Some(d) = dir {
         if d == home || !d.starts_with(home) {
@@ -694,7 +802,7 @@ fn is_build_folder(dir: &Path, home: &Path) -> bool {
 }
 
 /// An installer directly in ~/Downloads is already offered by "Installers in Downloads".
-fn is_listed_installer(path: &Path, home: &Path) -> bool {
+pub(crate) fn is_listed_installer(path: &Path, home: &Path) -> bool {
     path.parent() == Some(home.join("Downloads").as_path()) && has_extension(path, INSTALLER_EXTS)
 }
 
@@ -894,7 +1002,7 @@ fn is_allowed_in(path: &Path, home: &Path) -> bool {
     let mut current = path;
     loop {
         if is_item(&sources, current, home) {
-            return true;
+            return current == path || !whole_only(current, home);
         }
         match current.parent() {
             Some(parent) if !is_symlink(parent) => current = parent,
@@ -970,11 +1078,23 @@ pub fn clean(paths: Vec<String>) -> CleanReport {
             report.failures.push(fail("It no longer exists."));
             continue;
         }
+        let app = crate::apps::is_listed_app(&path, &home);
+        if app && crate::apps::is_running(&path) {
+            report.failures.push(fail("The app is open. Quit it, then clean again."));
+            continue;
+        }
+        // Collected before the app goes, while its bundle can still name them.
+        let support = if app { crate::apps::support_files(&path, &home) } else { vec![] };
         // Measuring a big folder takes a while, and its owner could swap a folder on the
         // way to `path` for a link in that time. So check again right before the move.
         let size = disk_size(&path, None);
-        if !safe_to_move(&path, &home) {
+        let moved_out_of_home = app && !path.starts_with(&home);
+        if !(if moved_out_of_home { is_allowed(&path) } else { safe_to_move(&path, &home) }) {
             report.failures.push(fail("It changed while cleaning, so it was left alone."));
+            continue;
+        }
+        if crate::duplicates::is_offered_copy(&path, &home) && !crate::duplicates::still_identical(&path) {
+            report.failures.push(fail("It no longer matches its other copy, so it was left alone."));
             continue;
         }
         match ctx.delete(&path) {
@@ -982,7 +1102,24 @@ pub fn clean(paths: Vec<String>) -> CleanReport {
                 report.removed += 1;
                 report.freed += size;
             }
-            Err(e) => report.failures.push(fail(&friendly_error(&e.to_string()))),
+            Err(e) => {
+                report.failures.push(fail(&friendly_error(&e.to_string())));
+                continue;
+            }
+        }
+        // The app is gone; its files in ~/Library follow. Each one is checked like any item.
+        for file in support {
+            let size = disk_size(&file, None);
+            if !(crate::apps::is_support_dir_entry(&file, &home) && parent_resolves_in_place(&file, &home)) {
+                continue;
+            }
+            match ctx.delete(&file) {
+                Ok(()) => report.freed += size,
+                Err(e) => report.failures.push(Failure {
+                    path: file.to_string_lossy().into_owned(),
+                    reason: friendly_error(&e.to_string()),
+                }),
+            }
         }
     }
     report
@@ -1094,6 +1231,8 @@ mod tests {
         let offered: Vec<PathBuf> = sources(&home)
             .iter()
             .flat_map(|s| &s.roots)
+            // The Applications roots are the real /Applications, outside this test's home.
+            .filter(|r| r.path.starts_with(&home))
             .flat_map(|r| candidates(r, &home, &ScanCtl::default()))
             .map(|(p, _, _)| p.strip_prefix(&home).unwrap().to_path_buf())
             .collect();
@@ -1364,3 +1503,4 @@ mod tests {
         }
     }
 }
+

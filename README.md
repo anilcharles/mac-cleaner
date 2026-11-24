@@ -14,7 +14,7 @@ These use made-up sample data, not a real Mac. Regenerate them with `./scripts/s
 
 ![Scan results in the light theme](docs/screenshots/results.png)
 
-**Dark theme.** The same screen in dark mode; Auto follows the macOS setting.
+**Dark theme.** The same screen in dark mode; Match System follows the macOS setting.
 
 ![Scan results in the dark theme](docs/screenshots/results-dark.png)
 
@@ -33,6 +33,10 @@ These use made-up sample data, not a real Mac. Regenerate them with `./scripts/s
 **Large Files & Folders.** Your own big files; never pre-selected.
 
 ![Large Files & Folders](docs/screenshots/large-files.png)
+
+**App Leftovers.** Files left behind by apps you deleted. Anything macOS won't let the app move is marked **Protected by macOS** and left unticked.
+
+![App Leftovers, with one item marked Protected by macOS](docs/screenshots/app-leftovers.png)
 
 **Search and filters.** Type to narrow the list, or filter by age.
 
@@ -70,11 +74,23 @@ Every picture is the same window at 100% zoom. The whole interface can also be s
 | Device Support | `~/Library/Developer/Xcode/{iOS,watchOS} DeviceSupport/*` | **review** |
 | Simulator Devices | `~/Library/Developer/CoreSimulator/Devices/*` | **review** – apps and data on the device are lost |
 | Installers in Downloads | `~/Downloads/*.{dmg,pkg,mpkg,xip}` | **review** |
+| Mail Downloads | `~/Library/Containers/com.apple.mail/Data/Library/Mail Downloads/*` (needs Full Disk Access) | selected |
+| iOS Software Updates | `~/Library/iTunes/{iPhone,iPad,iPod} Software Updates/*.ipsw` | selected |
+| Device Backups | `~/Library/Application Support/MobileSync/Backup/*` (needs Full Disk Access) | **review** – keep the latest backup of each device |
+| Applications | apps in `/Applications` and `~/Applications` (and plain folders one level down) that you can remove without a password, with their files in `~/Library` | **review** |
+| App Leftovers | files in `~/Library/{Application Support,Containers,Group Containers,Preferences,Saved Application State,HTTPStorages,WebKit,Cookies,Application Scripts}` named after an app that is no longer installed | **review** |
+| Duplicate Files | identical files ≥ 1 MB in `~`, outside the areas Large Files skips; the oldest copy is kept and never listed | **review** |
 | Large Files & Folders | files ≥ 100 MB (adjustable: 50 MB to 1 GB) anywhere in `~`, and the folders that hold them | **review**: your own files, never pre-selected |
 
 **Large Files & Folders** offers a large file through its own folder, so a whole download (video, subtitles, extras) can go at once. Open the folder to pick single files instead. Files loose in a top-level folder like `~/Downloads`, and files in code projects (folders with `.git`), are listed on their own; those folders are never offered whole. It skips `~/Library` (app data, iCloud, Mail), hidden folders (`.git`, `.cargo`…), `node_modules`, and macOS packages (`.photoslibrary`, `.app`, `.logicx`, `.fcpbundle`…). Removing one file from inside a package corrupts it. Every file is checked again before it is moved.
 
 **Simulator Devices** are listed by device name and OS version, read from each device's `device.plist`.
+
+**Applications** is the one category outside your home folder. It lists only apps this account can move to the Trash without a password, and never Apple's apps or Mac Cleaner itself. An app is offered whole (its bundle is never opened, so nothing inside it can be removed on its own) and its size includes its support files: entries in `~/Library` named after its bundle identifier, or after its name in Application Support, Caches and Logs. Removing it moves the app and those files to the Trash. An app that is running is left alone.
+
+**App Leftovers** are judged cautiously. Only reverse-DNS names count (`com.vendor.App`, with `group.` and team-ID prefixes removed). Nothing from Apple, nothing from a vendor that still has an app installed or running, and nothing changed in the last 30 days is offered. A leftover that macOS would refuse to move (it is locked, or the app can't write to it or to the folder it sits in) is still listed, so you can see it, but it is marked **Protected by macOS** and starts unticked.
+
+**Duplicate Files** groups files by size, then by a hash of their first 64 KB, then by a hash of their contents. Hard links count once. In each group the oldest file is kept and never listed. Right before a copy is moved it is compared byte by byte with the kept file again; if they differ, or the kept file is gone, the copy is left alone.
 
 **Project Build Folders** uses the same no-go areas as Large Files (`~/Library`, hidden folders, macOS packages). Files inside a build folder are never listed under Large Files as well.
 
@@ -122,7 +138,7 @@ To repeat the checks: `cargo test` and `cargo install cargo-audit && cargo audit
 - **Right-click a row** for Show in Finder, Quick Look, Copy Path, Open Folder and Always Ignore. Ignored items stay out of every later scan until you press Show Again at the bottom of the sidebar.
 - **Honest totals.** The sidebar counts junk only; large files are your own files and are listed separately until you select them.
 - A scan can be cancelled, and shows how many items it has checked.
-- **After a clean,** the result screen shows the space recovered and lists anything that could not be moved, with the reason. If macOS protected an item, a button opens the Full Disk Access settings.
+- **After a clean,** the result screen shows the space recovered and lists anything that could not be moved, with the reason. If macOS protected an item, a button opens the Full Disk Access settings. When you clean a single category, anything that could not be moved stays in its list marked **Couldn't be moved** and is unticked, so it doesn't look like it is still waiting to go.
 - **The welcome screen** shows free disk space, when the last scan ran and how much has been cleaned so far.
 - **Storage** for your Mac (name, used-space bar and space available) sits at the bottom of the results sidebar. It is read again every 3 seconds, so emptying the Trash or a big download shows up without a rescan. "Available" matches Finder and System Settings: it includes space macOS frees on demand.
 
@@ -138,7 +154,7 @@ To repeat the checks: `cargo test` and `cargo install cargo-audit && cargo audit
 
 ## Appearance and settings
 
-**Theme.** Use the Light / Dark / Auto switch in the top-right corner or the View menu. Auto follows the macOS setting.
+**Theme.** Click the theme button in the top-right corner (it shows a sun, moon or half circle for the current choice) and pick Light, Dark or Match System, or use the View menu. Match System follows the macOS setting.
 
 **Zoom.** For anyone who finds the interface too small (or too large):
 
@@ -208,7 +224,7 @@ MAC_CLEANER_SNAPSHOT_DIR=/tmp/shots MAC_CLEANER_THEME=dark MAC_CLEANER_ZOOM=1.3 
 
 ## How it is checked
 
-- **Unit tests** cover the allow-list, symlink handling, the large-file and build-folder rules, tree selection, filters and saved settings. They use temporary folders, never real files.
+- **Unit tests** cover the allow-list, symlink handling, the large-file and build-folder rules, app-leftover matching, duplicate detection, tree selection, filters and saved settings. They use temporary folders, never real files.
 - **Layout** is checked from the snapshots above, at 85%, 100% and 150% zoom, in light and dark, including the smallest window size.
 - **Not covered automatically:** pressing keyboard shortcuts, clicking menu items and dragging the window by its top edge. Try these by hand after changing that code.
 - **Moving files to the Trash** is only ever done by a person using the app. No test or walkthrough cleans anything.
@@ -221,6 +237,8 @@ src/
   ui.rs         GPUI view: all screens, table, dialog, building blocks
   app.rs        state and tree-selection logic (UI-independent, unit tested)
   scanner.rs    scanning, allow-list, folder listing, move-to-Trash
+  apps.rs       installed apps, their support files, leftovers of deleted apps
+  duplicates.rs identical-file search and the byte-by-byte recheck before a move
   theme.rs      light/dark palette, layout metrics, zoom levels and the pt() size unit
   settings.rs   saved choices: theme, zoom, size limit, ignore list, history
   native.rs     AppKit calls GPUI does not expose (minimum window size, usable screen size)

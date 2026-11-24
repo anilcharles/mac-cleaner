@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod apps;
+mod duplicates;
 mod native;
 #[cfg(debug_assertions)]
 mod sample;
@@ -27,8 +29,9 @@ macro_rules! icons {
 }
 
 const ICONS: &[(&str, &[u8])] = icons![
-    "alert", "archive", "auto", "cache", "check", "check-bold", "chevron", "chevron-down", "chevron-up", "chip",
-    "close", "code", "download", "drive", "empty", "file", "folder", "hammer", "logs", "minus", "moon", "package", "phone", "plus",
+    "alert", "app", "archive", "auto", "box", "cache", "check", "check-bold", "chevron", "chevron-down", "chevron-up", "chip",
+    "close", "code", "copy", "download", "drive", "empty", "file", "folder", "hammer", "logs", "mail", "minus", "moon", "package",
+    "phone", "plus",
     "refresh", "reveal", "search", "shield", "sparkle", "spinner", "sun", "trash",
 ];
 
