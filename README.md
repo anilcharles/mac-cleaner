@@ -2,7 +2,7 @@
 
 A native macOS cleaner written in Rust with [GPUI](https://crates.io/crates/gpui), the GPU-drawn UI framework from the Zed editor. It finds caches, logs, developer leftovers and large files, lets you open each folder to see what's inside, and only acts after you confirm every path.
 
-Version 1.0.0. Needs macOS 12 or later. Prebuilt downloads are for Apple Silicon (see [Install](#install)); building from source needs a Rust toolchain.
+Version 1.2.0. Needs macOS 12 or later. Prebuilt downloads are for Apple Silicon (see [Install](#install)); building from source needs a Rust toolchain.
 
 Created with [Claude Code](https://claude.com/claude-code), Anthropic's AI coding tool. See [Is it safe to run?](#is-it-safe-to-run) for what has been checked.
 
@@ -115,14 +115,15 @@ For anyone asking whether this contains a virus: all of the source is in this re
   - Hardening done at the same time: the home folder is read from the user database, not from `$HOME`; `open` is called by its full path; the snapshot walkthrough exists only in debug builds.
 - **Dependency audit.** `cargo audit` 0.23.0 checked all 724 packages in `Cargo.lock` against the RustSec advisory database: **no known vulnerabilities**. It listed 14 "unmaintained" notices, all for packages pulled in by GPUI.
 
-- **Antivirus scan.** The version 1.0.0 release download was uploaded to [VirusTotal](https://www.virustotal.com) on 23 November 2026. VirusTotal runs a file past the engines of many antivirus vendors. **No engine flagged it:**
-  - the program file inside the app: 0 malicious, 0 suspicious, 62 engines found nothing, 11 do not handle this file type ([report](https://www.virustotal.com/gui/file/39d98649fdb27db33bda7b1880feb487e2f446df88a4a711aef5f1b1e0f9c8b4));
-  - the DMG from the [v1.0.0 release](https://github.com/anilcharles/mac-cleaner/releases/tag/v1.0.0): 0 malicious, 0 suspicious, 60 engines found nothing, 1 failed, 12 do not handle this file type ([report](https://www.virustotal.com/gui/file/736c031ff62050b6b27649d4e1b9a25e81f91eb1e0fc762f604166c05f5b7a2c)).
+- **Antivirus scan.** The version 1.2.0 release download was uploaded to [VirusTotal](https://www.virustotal.com) on 24 November 2026. VirusTotal runs a file past the engines of many antivirus vendors.
+  - the DMG from the [v1.2.0 release](https://github.com/anilcharles/mac-cleaner/releases/tag/v1.2.0): **no engine flagged it**. 0 malicious, 0 suspicious, 61 engines found nothing, 12 do not handle this file type ([report](https://www.virustotal.com/gui/file/cb55cb89ef9c808ab0c507194d60e77a87e77caa5a5170ef89b7d2a478de302d));
+  - the program file inside the app: **1 engine flagged it**. Microsoft reported `Trojan:Script/Wacatac.B!ml`; 0 suspicious, 60 engines found nothing, 1 failed, 11 do not handle this file type ([report](https://www.virustotal.com/gui/file/d3f88cd85884daad186faca347b7a507535259711b3a7d0d5e76a82a823b25d8)). The `!ml` ending means Microsoft's machine-learning model guessed from the file's traits, not that it matched known malware. This kind of guess often hits new programs that are not signed with an Apple Developer ID, like this one. It has not been reported to Microsoft as a false positive yet. The source is all in this repository if you want to check for yourself.
+  - The earlier 1.0.0 release was not flagged by any engine ([program](https://www.virustotal.com/gui/file/39d98649fdb27db33bda7b1880feb487e2f446df88a4a711aef5f1b1e0f9c8b4), [DMG](https://www.virustotal.com/gui/file/736c031ff62050b6b27649d4e1b9a25e81f91eb1e0fc762f604166c05f5b7a2c)).
 
 **What this does not cover**
 
 - This is not an independent audit or a penetration test. The review was done by Claude, the same AI tool that wrote the code, by reading the source; nobody outside the project has reviewed it.
-- The VirusTotal result means no engine recognised known malware in that one build on that day. It is not proof that the app is harmless, and it does not carry over to a later version or to a copy you build yourself, which will have a different fingerprint.
+- A VirusTotal result covers that one build on that day. It is not proof that the app is harmless, and it does not carry over to a later version or to a copy you build yourself, which will have a different fingerprint.
 - Cloudflare did not audit, scan, test or endorse this app. The security-audit skill is a published set of review instructions that Claude followed; no Cloudflare service was run.
 - Code added after that review has not been reviewed for security: zoom, search and filters, popup menus, the About dialog, the ignore list, Project Build Folders, Simulator Devices and Quick Look.
 - A very small timing window remains between the last check and the move to the Trash, and the home folder itself is not checked for being a symlink.
