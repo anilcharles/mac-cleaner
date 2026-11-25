@@ -6,6 +6,7 @@ mod category_icons;
 mod duplicates;
 mod native;
 mod old_files;
+mod spotlight;
 #[cfg(debug_assertions)]
 mod sample;
 mod scanner;

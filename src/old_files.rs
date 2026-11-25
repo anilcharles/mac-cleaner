@@ -1,7 +1,10 @@
 //! Files in the user's own folders that haven't been opened or changed for a long time.
 //!
-//! A file's last use is the later of its access time (macOS updates it whenever the file is read)
-//! and its modification time. Files of at least `MIN_SIZE` not used for `min_days()` are offered.
+//! A file's last use is the latest of its access time, its modification time, and the dates
+//! Spotlight keeps of when it was last opened through Finder or an app and when it was added to its
+//! folder (see `spotlight`). The access time alone isn't enough: macOS moves it forward only on the
+//! first read after a change, so a file opened often but never edited keeps an old one.
+//! Files of at least `MIN_SIZE` not used for `min_days()` are offered.
 //! Each offered file is remembered as it was at the scan: before it is moved it must still be the
 //! same ordinary file with the same contents. Looking at it in between (Quick Look, say) doesn't
 //! take it off the list, but editing or replacing it does.
@@ -91,6 +94,11 @@ pub fn old_file_items(home: &Path, ctl: &ScanCtl) -> Vec<(PathBuf, String, Optio
         let used = last_used_ms(&m);
         // Hard links are one file with two names: removing one frees nothing.
         if m.blocks() * 512 < MIN_SIZE || used > cutoff || !seen.insert((m.dev(), m.ino())) {
+            continue;
+        }
+        // Asked only now, for the few files the file system's dates call old: it's a lookup each.
+        let used = used.max(crate::spotlight::last_activity_ms(e.path()).unwrap_or(0));
+        if used > cutoff {
             continue;
         }
         let place = tilde(e.path().parent().unwrap_or(e.path()), home);
