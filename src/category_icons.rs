@@ -42,6 +42,7 @@ fn sources(category: &str) -> &'static [Source] {
         "app-leftovers" => &[System("FullTrashIcon")],
         "duplicates" => &[System("MultipleItemsIcon")],
         "large-files" => &[File("/System/Applications/Utilities/Disk Utility.app"), System("SidebarInternalDisk")],
+        "old-files" => &[File("/System/Applications/Clock.app"), System("Clock")],
         _ => &[],
     }
 }

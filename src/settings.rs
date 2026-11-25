@@ -20,6 +20,8 @@ pub struct Settings {
     pub zoom: f32,
     /// Smallest file listed under Large Files.
     pub large_min: u64,
+    /// Days a file must have gone unused to be listed under Old Files.
+    pub old_days: u64,
     /// Top-level items the user asked never to see again.
     pub ignored: Vec<String>,
     /// Bytes moved to the Trash over all runs.
@@ -40,6 +42,7 @@ impl Default for Settings {
             theme: ThemeMode::System,
             zoom: 1.,
             large_min: 100_000_000,
+            old_days: 365,
             ignored: vec![],
             freed_total: 0,
             cleans: 0,
@@ -96,6 +99,11 @@ impl Settings {
                         s.large_min = v;
                     }
                 }
+                "old_days" => {
+                    if let Some(v) = value.trim().parse().ok().filter(|v| crate::old_files::DAYS_CHOICES.contains(v)) {
+                        s.old_days = v;
+                    }
+                }
                 "ignore" if value.starts_with('/') => s.ignored.push(value.to_string()),
                 "freed_total" => s.freed_total = value.trim().parse().unwrap_or(0),
                 "cleans" => s.cleans = value.trim().parse().unwrap_or(0),
@@ -114,8 +122,8 @@ impl Settings {
             ThemeMode::Dark => "dark",
         };
         let mut out = format!(
-            "theme={theme}\nzoom={}\nlarge_min={}\nfreed_total={}\ncleans={}\nauto_update={}\n",
-            self.zoom, self.large_min, self.freed_total, self.cleans, self.auto_update
+            "theme={theme}\nzoom={}\nlarge_min={}\nold_days={}\nfreed_total={}\ncleans={}\nauto_update={}\n",
+            self.zoom, self.large_min, self.old_days, self.freed_total, self.cleans, self.auto_update
         );
         if let Some(t) = self.last_scan {
             out.push_str(&format!("last_scan={t}\n"));
@@ -169,6 +177,7 @@ mod tests {
         s.theme = ThemeMode::Dark;
         s.zoom = 1.3;
         s.large_min = 500_000_000;
+        s.old_days = 730;
         s.freed_total = 12_345;
         s.cleans = 3;
         s.last_scan = Some(1_700_000_000_000);
@@ -179,6 +188,7 @@ mod tests {
         assert!(back.theme == ThemeMode::Dark);
         assert_eq!(back.zoom, 1.3);
         assert_eq!(back.large_min, 500_000_000);
+        assert_eq!(back.old_days, 730);
         assert_eq!((back.freed_total, back.cleans, back.last_scan), (12_345, 3, Some(1_700_000_000_000)));
         assert!(!back.auto_update);
         assert_eq!(back.ignored, ["/Users/me/Library/Caches/a=b"]);
@@ -186,10 +196,11 @@ mod tests {
 
     #[test]
     fn reads_the_old_theme_only_file_and_rejects_odd_thresholds() {
-        let s = Settings::parse("theme=light\nlarge_min=7\n");
+        let s = Settings::parse("theme=light\nlarge_min=7\nold_days=3\n");
         assert!(s.theme == ThemeMode::Light);
         assert_eq!(s.zoom, 1., "a file without a zoom line means 100%");
         assert_eq!(s.large_min, 100_000_000);
+        assert_eq!(s.old_days, 365);
         assert!(s.auto_update, "update checks are on unless turned off");
     }
 }

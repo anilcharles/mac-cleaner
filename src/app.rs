@@ -160,11 +160,21 @@ impl Model {
         self.cursor = None;
     }
 
+    /// Takes in a finished scan. A path found by more than one category is shown only in the
+    /// first of them, and nothing is listed inside an item an earlier category already offers.
     pub fn load_scan(&mut self, categories: Vec<Category>) {
         self.clear_results();
         for (ci, c) in categories.into_iter().enumerate() {
             let mut paths = vec![];
+            let mut total = 0;
             for it in c.items {
+                let listed = std::path::Path::new(&it.path)
+                    .ancestors()
+                    .any(|p| p.to_str().is_some_and(|p| self.nodes.get(p).is_some_and(|n| n.cat != ci)));
+                if listed {
+                    continue;
+                }
+                total += it.size;
                 if it.selected {
                     self.selected.insert(it.path.clone());
                 }
@@ -184,7 +194,7 @@ impl Model {
                     },
                 );
             }
-            self.cats.push(Cat { info: c.info, items: paths, total: c.total });
+            self.cats.push(Cat { info: c.info, items: paths, total });
         }
         self.active = self.cats.iter().position(|c| !c.items.is_empty()).unwrap_or(0);
         self.screen = Screen::Results;
@@ -240,13 +250,19 @@ impl Model {
     }
 
     pub fn filter_active(&self) -> bool {
-        !self.query.trim().is_empty() || self.age != Age::Any
+        !self.query.trim().is_empty() || self.age_applies(self.active)
+    }
+
+    /// The age menu filters by when items were last modified. Old Files has its own
+    /// "unused for" menu instead, so there it is hidden and ignored.
+    pub fn age_applies(&self, ci: usize) -> bool {
+        self.age != Age::Any && self.cats.get(ci).is_none_or(|c| c.info.id != "old-files")
     }
 
     /// Top-level items of a category that pass the search text and the age filter.
     pub fn visible(&self, ci: usize) -> Vec<String> {
         let Some(cat) = self.cats.get(ci) else { return vec![] };
-        if !self.filter_active() {
+        if self.query.trim().is_empty() && !self.age_applies(ci) {
             return cat.items.clone();
         }
         let query = self.query.trim().to_lowercase();
@@ -256,7 +272,7 @@ impl Model {
             .iter()
             .filter(|p| {
                 let n = &self.nodes[*p];
-                let old_enough = self.age == Age::Any || n.modified.is_some_and(|m| m <= newest);
+                let old_enough = !self.age_applies(ci) || n.modified.is_some_and(|m| m <= newest);
                 let matches = query.is_empty()
                     || n.name.to_lowercase().contains(&query)
                     || n.location.as_deref().is_some_and(|l| l.to_lowercase().contains(&query))
@@ -577,7 +593,7 @@ impl Model {
 
 /// These list the user's own files and apps; every other category is junk by nature.
 pub fn is_personal(info: &SourceInfo) -> bool {
-    matches!(info.id, "large-files" | "duplicates" | "applications" | "ios-backups")
+    matches!(info.id, "large-files" | "old-files" | "duplicates" | "applications" | "ios-backups")
 }
 
 /* ---------- Formatting ---------- */
@@ -808,6 +824,47 @@ mod tests {
         m.cats = vec![cat("caches", 5), cat("build-folders", 7), cat("large-files", 100)];
         assert_eq!(m.junk_found(), (12, 2));
         assert_eq!(m.personal_found(), 100);
+    }
+
+    #[test]
+    fn a_path_is_listed_in_the_first_category_that_finds_it() {
+        let info = |id| SourceInfo { id, title: "", description: "", icon: "", risk: Risk::Review };
+        let item = |path: &str, size| crate::scanner::Item {
+            path: path.into(),
+            name: path.rsplit('/').next().unwrap().into(),
+            location: String::new(),
+            size,
+            modified: None,
+            selected: false,
+            note: None,
+            is_dir: !path.contains('.'),
+        };
+        let cat = |id, items: Vec<crate::scanner::Item>| Category { info: info(id), total: items.iter().map(|i| i.size).sum(), items };
+        let mut m = Model::new(vec![]);
+        m.load_scan(vec![
+            cat("duplicates", vec![item("/h/Desktop/copy.mov", 300)]),
+            cat("large-files", vec![item("/h/Desktop/copy.mov", 300), item("/h/Movies/Trip", 900)]),
+            cat("old-files", vec![item("/h/Movies/Trip/notes.pdf", 5), item("/h/Documents/2021.pdf", 7)]),
+        ]);
+        assert_eq!(m.cats[1].items, ["/h/Movies/Trip"]);
+        assert_eq!(m.cats[1].total, 900, "the total counts only what is shown");
+        assert_eq!(m.cats[2].items, ["/h/Documents/2021.pdf"], "nothing inside another category's folder");
+        assert_eq!(m.nodes["/h/Desktop/copy.mov"].cat, 0);
+        assert_eq!(m.personal_found(), 300 + 900 + 7, "nothing is counted twice");
+    }
+
+    #[test]
+    fn old_files_ignore_the_age_menu() {
+        let mut m = Model::new(vec![]);
+        let mut n = node("/h/old.pdf", None);
+        n.modified = Some(0);
+        m.nodes.insert("/h/new.pdf".into(), node("/h/new.pdf", None));
+        m.nodes.insert("/h/old.pdf".into(), n);
+        let info = SourceInfo { id: "old-files", title: "", description: "", icon: "", risk: Risk::Review };
+        m.cats.push(Cat { info, items: vec!["/h/new.pdf".into(), "/h/old.pdf".into()], total: 20 });
+        m.age = Age::Year;
+        assert_eq!(m.visible(0).len(), 2);
+        assert!(!m.filter_active());
     }
 
     #[test]

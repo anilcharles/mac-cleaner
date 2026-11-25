@@ -92,6 +92,15 @@ fn rows(id: &str) -> Vec<Row> {
             ("~/Downloads · same as ~/Documents/Taxes 2024.pdf", "Taxes 2024 (1).pdf", 12 * MB, 30, false),
             ("~/Desktop · same as ~/Pictures/Wallpaper.heic", "Wallpaper.heic", 4 * MB, 15, false),
         ],
+        "old-files" => vec![
+            ("Unused for 3 years · ~/Desktop", "Screen Recording 2023-03-14.mov", 96 * MB, 1_190, false),
+            ("Unused for 2 years · ~/Downloads", "Keynote Template Pack.zip", 86 * MB, 800, false),
+            ("Unused for 4 years · ~/Music/Podcast", "Interview Raw Take 2.wav", 74 * MB, 1_500, false),
+            ("Unused for 5 years · ~/Documents/Old Projects", "brand-guidelines-v2.sketch", 42 * MB, 1_900, false),
+            ("Unused for 2 years · ~/Downloads", "Python for Data Analysis.epub", 12 * MB, 780, false),
+            ("Unused for 3 years · ~/Documents/Taxes", "Tax Return 2022.pdf", 8 * MB, 1_100, false),
+            ("Unused for 1 year · ~/Pictures/Scans", "Passport scan.tiff", 3 * MB, 420, false),
+        ],
         "ios-backups" => vec![("iPhone · ~/Library/Application Support/MobileSync/Backup", "My iPhone", 48_200 * MB, 60, true)],
         _ => vec![],
     }
