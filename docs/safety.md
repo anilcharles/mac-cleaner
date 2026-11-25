@@ -25,6 +25,7 @@
 | App Leftovers | files in `~/Library/{Application Support,Containers,Group Containers,Preferences,Saved Application State,HTTPStorages,WebKit,Cookies,Application Scripts}` named after an app that is no longer installed | **review** |
 | Duplicate Files | identical files ≥ 1 MB in `~`, outside the areas Large Files skips; the oldest copy is kept and never listed | **review** |
 | Large Files & Folders | files ≥ 100 MB (adjustable: 50 MB to 1 GB) anywhere in `~`, and the folders that hold them | **review**: your own files, never pre-selected |
+| Old Files | files ≥ 1 MB in `~`, outside the areas Large Files skips, not opened or changed for 1 year (adjustable: 6 months to 3 years) | **review**: your own files, never pre-selected |
 
 **Large Files & Folders** offers a large file through its own folder, so a whole download (video, subtitles, extras) can go at once. Open the folder to pick single files instead. Files loose in a top-level folder like `~/Downloads`, and files in code projects (folders with `.git`), are listed on their own; those folders are never offered whole. It skips `~/Library` (app data, iCloud, Mail), hidden folders (`.git`, `.cargo`…), `node_modules`, and macOS packages (`.photoslibrary`, `.app`, `.logicx`, `.fcpbundle`…). Removing one file from inside a package corrupts it. Every file is checked again before it is moved.
 
@@ -35,6 +36,8 @@
 **App Leftovers** are judged cautiously. Only reverse-DNS names count (`com.vendor.App`, with `group.` and team-ID prefixes removed). Nothing from Apple, nothing from a vendor that still has an app installed or running, and nothing changed in the last 30 days is offered. A leftover that macOS would refuse to move (it is locked, or the app can't write to it or to the folder it sits in) is still listed, so you can see it, but it is marked **Protected by macOS** and starts unticked.
 
 **Duplicate Files** groups files by size, then by a hash of their first 64 KB, then by a hash of their contents. Hard links count once. In each group the oldest file is kept and never listed. Right before a copy is moved it is compared byte by byte with the kept file again; if they differ, or the kept file is gone, the copy is left alone.
+
+**Old Files** counts a file as used when it was last read or last changed, whichever is later; macOS records both. Files listed under Duplicate Files or Large Files (or inside a folder offered there) aren't listed again. Hard links count once. Right before a file is moved it must still be the same file with the same size and modification time as at the scan: opening it in between (with Quick Look, say) is fine, but if it was edited or replaced it is left alone.
 
 **Project Build Folders** uses the same no-go areas as Large Files (`~/Library`, hidden folders, macOS packages). Files inside a build folder are never listed under Large Files as well.
 

@@ -121,6 +121,7 @@ pub fn tile_colors(category_id: &str) -> (u32, u32) {
         "applications" => (0x7f9cff, 0x4a5cf0),
         "app-leftovers" => (0xe9a4d6, 0xc25aa8),
         "duplicates" => (0xffd56b, 0xf0a500),
+        "old-files" => (0x8fa8c8, 0x55708f),
         _ => (0x5ac8fa, 0x007aff),
     }
 }

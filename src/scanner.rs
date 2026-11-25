@@ -49,6 +49,9 @@ enum Layout {
     Leftovers,
     /// Files under the root (the home folder) that have an identical copy elsewhere (see `duplicates`).
     Duplicates,
+    /// Files under the root (the home folder) that haven't been opened or changed for a long time
+    /// (see `old_files`).
+    OldFiles,
 }
 
 /// Files at least this big (on disk) are listed under Large Files. The user can change it.
@@ -384,6 +387,14 @@ fn sources(home: &Path) -> Vec<Source> {
             risk: Risk::Review,
             roots: vec![Root { path: home.to_path_buf(), layout: Layout::LargeFiles }],
         },
+        Source {
+            id: "old-files",
+            title: "Old Files",
+            description: "Files of 1 MB or more in your home folder that you haven't opened or changed in a long time. Files already listed under Duplicates or Large Files aren't repeated here.",
+            icon: "clock",
+            risk: Risk::Review,
+            roots: vec![Root { path: home.to_path_buf(), layout: Layout::OldFiles }],
+        },
     ]
 }
 
@@ -467,6 +478,7 @@ fn candidates(root: &Root, home: &Path, ctl: &ScanCtl) -> Vec<Candidate> {
         Layout::Apps => crate::apps::app_items(&root.path, home),
         Layout::Leftovers => crate::apps::leftover_items(&root.path, home),
         Layout::Duplicates => crate::duplicates::duplicate_items(&root.path, ctl),
+        Layout::OldFiles => crate::old_files::old_file_items(&root.path, ctl),
         Layout::Backups => {
             let Ok(entries) = fs::read_dir(&root.path) else { return vec![] };
             let parent = tilde(&root.path, home);
@@ -705,6 +717,7 @@ fn is_item(sources: &[Source], path: &Path, home: &Path) -> bool {
                 && crate::apps::is_leftover(path)
         }
         Layout::Duplicates => crate::duplicates::is_offered_copy(path, home),
+        Layout::OldFiles => crate::old_files::is_offered(path, home),
     })
 }
 

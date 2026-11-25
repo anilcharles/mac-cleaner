@@ -1,6 +1,6 @@
 # Mac Cleaner
 
-A native macOS cleaner written in Rust with [GPUI](https://crates.io/crates/gpui), the GPU-drawn UI framework from the Zed editor. It finds caches, logs, developer leftovers, large files, duplicates and the files deleted apps leave behind. You can open each folder to see what's inside, and nothing is moved until you confirm every path.
+A native macOS cleaner written in Rust with [GPUI](https://crates.io/crates/gpui), the GPU-drawn UI framework from the Zed editor. It finds caches, logs, developer leftovers, large files, duplicates, old files you no longer use and the files deleted apps leave behind. You can open each folder to see what's inside, and nothing is moved until you confirm every path.
 
 Version 1.2.0. Needs macOS 12 or later. Prebuilt downloads are for Apple Silicon. Created with [Claude Code](https://claude.com/claude-code), Anthropic's AI coding tool.
 
@@ -62,7 +62,7 @@ You only need to do this once per download.
 
 ## What it cleans
 
-App caches, log files, Xcode derived data, archives and device support, simulator caches and devices, package-manager caches, project build folders, installers in Downloads, Mail downloads, iOS updates and backups, apps with their support files, app leftovers, duplicate files, and large files and folders.
+App caches, log files, Xcode derived data, archives and device support, simulator caches and devices, package-manager caches, project build folders, installers in Downloads, Mail downloads, iOS updates and backups, apps with their support files, app leftovers, duplicate files, large files and folders, and old files you haven't opened in a long time.
 
 Low-risk items are pre-selected. Anything that needs a closer look is marked **Review** and starts unticked. The full list of locations is in the [Safety model](docs/safety.md).
 

@@ -30,6 +30,10 @@ These use made-up sample data, not a real Mac. Regenerate them with `./scripts/s
 
 ![Large Files & Folders](screenshots/large-files.png)
 
+**Old Files.** Your own files you haven't opened or changed in a long time, with how long each has gone unused. A menu sets the age, from 6 months to 3 years; never pre-selected.
+
+![Old Files](screenshots/old-files.png)
+
 **App Leftovers.** Files left behind by apps you deleted. Anything macOS won't let the app move is marked **Protected by macOS** and left unticked.
 
 ![App Leftovers, with one item marked Protected by macOS](screenshots/app-leftovers.png)
@@ -54,11 +58,11 @@ Every picture is the same window at 100% zoom. The whole interface can also be s
 
 ## Working with the results
 
-- **Search and filters.** Type to search the open category (name, location or kind), or press ⌘F. The age menu keeps only items not modified for 30 days, 6 months or a year. In Large Files & Folders, a size menu sets the smallest file listed and scans again. Select All and Deselect All act on what the filter shows.
+- **Search and filters.** Type to search the open category (name, location or kind), or press ⌘F. The age menu keeps only items not modified for 30 days, 6 months or a year. In Large Files & Folders, a size menu sets the smallest file listed and scans again. In Old Files, the age menu is replaced by an **Unused for** menu (6 months, 1 year, 2 years or 3 years) that scans again. Select All and Deselect All act on what the filter shows.
 - **Keyboard.** Any letter starts a search; ↑/↓ move, Space ticks the row, →/← open and close a folder, ⌘1…⌘9 switch category, ⌘A / ⇧⌘A select and deselect, ⌘R scans again, ⌘Y is Quick Look, Return opens the review dialog (it never confirms the move itself), Esc closes or clears. ⌘+ / ⌘− / ⌘0 change the zoom, ⌘W closes the window, ⌘M minimizes it and ⌘Q quits.
 - **Columns.** Name, Kind, Modified and Size; click a heading to sort. The Kind column is dropped when the window is too narrow for it.
 - **Right-click a row** for Show in Finder, Quick Look, Copy Path, Open Folder and Always Ignore. Ignored items stay out of every later scan until you press Show Again at the bottom of the sidebar.
-- **Honest totals.** The sidebar counts junk only; large files are your own files and are listed separately until you select them.
+- **Honest totals.** The sidebar counts junk only; large and old files are your own files and are listed separately until you select them.
 - A scan can be cancelled, and shows how many items it has checked.
 - **After a clean,** the result screen shows the space recovered and lists anything that could not be moved, with the reason. If macOS protected an item, a button opens the Full Disk Access settings. When you clean a single category, anything that could not be moved stays in its list marked **Couldn't be moved** and is unticked, so it doesn't look like it is still waiting to go.
 - **The welcome screen** shows free disk space, when the last scan ran and how much has been cleaned so far.
@@ -103,4 +107,4 @@ To check a download by hand: `minisign -Vm Mac-Cleaner-<version>-arm64.dmg -P RW
 - On a small screen at a high zoom, the welcome, scanning and result screens scroll instead of being cut off.
 - The app also follows macOS's own display scaling (System Settings → Displays), like every other app.
 
-**Saved between launches.** The theme, the zoom level, the Large Files size limit, the ignore list, the last scan time, the running total of cleaned space and whether to check for updates automatically are saved as plain text in `~/Library/Application Support/Mac Cleaner/settings.txt`. That folder is never scanned or cleaned.
+**Saved between launches.** The theme, the zoom level, the Large Files size limit, the Old Files age, the ignore list, the last scan time, the running total of cleaned space and whether to check for updates automatically are saved as plain text in `~/Library/Application Support/Mac Cleaner/settings.txt`. That folder is never scanned or cleaned.

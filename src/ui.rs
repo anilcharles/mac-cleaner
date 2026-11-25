@@ -49,6 +49,7 @@ enum Cmd {
     Ignore(String),
     Age(Age),
     LargeMin(u64),
+    OldDays(u64),
     Theme(ThemeMode),
 }
 
@@ -133,6 +134,7 @@ impl CleanerApp {
         .detach();
         let settings = Settings::load();
         scanner::set_large_file_min(settings.large_min);
+        crate::old_files::set_min_days(settings.old_days);
         let zoom = crate::settings::zoom_override().unwrap_or(settings.zoom);
         window.set_rem_size(gpui::px(BASE_REM * zoom));
         Self {
@@ -441,6 +443,15 @@ impl CleanerApp {
                     scanner::set_large_file_min(bytes);
                     self.start_scan(cx);
                     // The old list no longer matches the new limit.
+                    self.m.clear_results();
+                }
+            }
+            Cmd::OldDays(days) => {
+                if days != self.settings.old_days {
+                    self.settings.old_days = days;
+                    self.settings.save();
+                    crate::old_files::set_min_days(days);
+                    self.start_scan(cx);
                     self.m.clear_results();
                 }
             }
@@ -881,7 +892,7 @@ impl CleanerApp {
             forward(&this, cx);
             wait(250).await;
             snap("4b-large-files");
-            for (id, name) in [("applications", "4b2-applications"), ("app-leftovers", "4b3-leftovers"), ("duplicates", "4b4-duplicates")] {
+            for (id, name) in [("applications", "4b2-applications"), ("app-leftovers", "4b3-leftovers"), ("duplicates", "4b4-duplicates"), ("old-files", "4b5-old-files")] {
                 this.update(cx, |this, cx| {
                     if let Some(ci) = this.m.cats.iter().position(|c| c.info.id == id) {
                         this.m.active = ci;
@@ -1476,7 +1487,7 @@ impl CleanerApp {
             .pt(TITLEBAR)
             .px(pt(24.))
             .child(header)
-            .when(!empty, |el| el.child(self.filter_bar(id == "large-files", shown, actions, t, cx)))
+            .when(!empty, |el| el.child(self.filter_bar(id, shown, actions, t, cx)))
             .child(
                 div()
                     .flex_1()
@@ -1491,7 +1502,7 @@ impl CleanerApp {
     }
 
     /// Search box and filters above the table.
-    fn filter_bar(&self, large_files: bool, shown: usize, actions: Div, t: &Theme, cx: &mut Context<Self>) -> Div {
+    fn filter_bar(&self, cat_id: &str, shown: usize, actions: Div, t: &Theme, cx: &mut Context<Self>) -> Div {
         let total = self.m.cats[self.m.active].items.len();
         let query = self.m.query.clone();
         let caret = || div().w(pt(1.5)).h(pt(15.)).flex_none().bg(t.accent);
@@ -1565,6 +1576,15 @@ impl CleanerApp {
                 .map(|b| PopItem { label: format!("At least {}", bytes(*b)).into(), checked: *b == min, cmd: Cmd::LargeMin(*b) })
                 .collect()
         };
+        let old_days = self.settings.old_days;
+        let unused = |days: u64| format!("Unused for {}", crate::old_files::span(days));
+        let days_items = move || -> Vec<PopItem> {
+            crate::old_files::DAYS_CHOICES
+                .iter()
+                .map(|d| PopItem { label: unused(*d).into(), checked: *d == old_days, cmd: Cmd::OldDays(*d) })
+                .collect()
+        };
+        let old_files = cat_id == "old-files";
 
         div()
             .flex()
@@ -1572,14 +1592,25 @@ impl CleanerApp {
             .gap(pt(8.))
             .pb(pt(12.))
             .child(search)
-            .child(dropdown("age-filter", age.label().into(), age != Age::Any, t).on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, event: &MouseDownEvent, _, cx| {
-                    this.popup = Some(Popup { pos: event.position, items: age_items() });
-                    cx.notify();
-                }),
-            ))
-            .when(large_files, |el| {
+            .when(!old_files, |el| {
+                el.child(dropdown("age-filter", age.label().into(), age != Age::Any, t).on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                        this.popup = Some(Popup { pos: event.position, items: age_items() });
+                        cx.notify();
+                    }),
+                ))
+            })
+            .when(old_files, |el| {
+                el.child(dropdown("unused-filter", unused(old_days), false, t).on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                        this.popup = Some(Popup { pos: event.position, items: days_items() });
+                        cx.notify();
+                    }),
+                ))
+            })
+            .when(cat_id == "large-files", |el| {
                 el.child(dropdown("size-filter", format!("At least {}", bytes(min)), false, t).on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, event: &MouseDownEvent, _, cx| {

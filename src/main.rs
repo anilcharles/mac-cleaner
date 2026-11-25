@@ -5,6 +5,7 @@ mod apps;
 mod category_icons;
 mod duplicates;
 mod native;
+mod old_files;
 #[cfg(debug_assertions)]
 mod sample;
 mod scanner;
@@ -32,7 +33,7 @@ macro_rules! icons {
 
 const ICONS: &[(&str, &[u8])] = icons![
     "alert", "app", "archive", "auto", "backup", "box", "cache", "check", "check-bold", "chevron", "chevron-down", "chevron-up",
-    "chip", "close", "cloud-download", "code", "copy", "devices", "download", "drive", "empty", "file", "folder", "hammer",
+    "chip", "clock", "close", "cloud-download", "code", "copy", "devices", "download", "drive", "empty", "file", "folder", "hammer",
     "installer", "logs", "mail", "minus", "moon", "package", "phone", "plus", "refresh", "reveal", "search", "shield", "sparkle",
     "spinner", "sun", "trash", "large",
 ];
