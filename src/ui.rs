@@ -273,7 +273,6 @@ impl CleanerApp {
 
     fn run_clean(&mut self, cx: &mut Context<Self>) {
         let paths = self.m.scoped();
-        let scope = self.m.scope;
         let cleaned = paths.clone();
         self.m.modal = Modal::Working;
         cx.notify();
@@ -288,22 +287,17 @@ impl CleanerApp {
                 this.settings.save();
                 this.disk = scanner::disk_space();
                 this.m.report = Some(report);
-                if scope.is_some() {
-                    // Only one category was cleaned: keep the rest of the results to go back to.
-                    for p in &cleaned {
-                        if std::fs::symlink_metadata(p).is_err() {
-                            this.m.remove_cleaned(p);
-                        } else if this.m.report.as_ref().is_some_and(|r| r.failures.iter().any(|f| &f.path == p)) {
-                            this.m.mark_failed(p);
-                        }
+                // Take what went to the Trash out of the results; the rest stays behind the dialog.
+                for p in &cleaned {
+                    if std::fs::symlink_metadata(p).is_err() {
+                        this.m.remove_cleaned(p);
+                    } else if this.m.report.as_ref().is_some_and(|r| r.failures.iter().any(|f| &f.path == p)) {
+                        this.m.mark_failed(p);
                     }
-                    this.m.cursor = None;
-                } else {
-                    this.m.clear_results();
                 }
+                this.m.cursor = None;
                 this.m.scope = None;
-                this.m.modal = Modal::None;
-                this.m.screen = Screen::Done;
+                this.m.modal = Modal::Done;
                 cx.notify();
             })
             .ok();
@@ -591,6 +585,8 @@ impl CleanerApp {
         if self.popup.take().is_some() {
         } else if self.m.modal == Modal::Update {
             self.close_update();
+        } else if self.m.modal == Modal::Done {
+            return self.close_done(cx);
         } else if matches!(self.m.modal, Modal::Confirm | Modal::About) {
             self.m.modal = Modal::None;
         } else if self.m.screen == Screen::Results && (self.search_on || !self.m.query.is_empty()) {
@@ -610,6 +606,7 @@ impl CleanerApp {
                 self.m.modal = Modal::None;
                 cx.notify();
             }
+            (Modal::Done, _) => self.close_done(cx),
             (Modal::None, Screen::Welcome) => self.start_scan(cx),
             (Modal::None, Screen::Results) if self.search_on => {
                 self.search_on = false;
@@ -1032,7 +1029,7 @@ impl CleanerApp {
                         reason: "macOS protects this item. Grant Full Disk Access to clean it.".into(),
                     }],
                 });
-                this.m.screen = Screen::Done;
+                this.m.modal = Modal::Done;
                 cx.notify();
             })
             .ok();
@@ -1903,11 +1900,10 @@ impl CleanerApp {
             )
     }
 
-    fn done(&self, t: &Theme, cx: &mut Context<Self>) -> Div {
-        let Some(r) = &self.m.report else { return div() };
+    /// The result of a clean, shown as a dialog over what is left of the results.
+    fn done(&self, t: &Theme, max_h: gpui::Pixels, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let r = self.m.report.as_ref()?;
         let ok = r.removed > 0;
-        // After cleaning a single category the other results are still there.
-        let has_results = !self.m.cats.is_empty();
         let last = r.failures.len().saturating_sub(1);
         let needs_access = r.failures.iter().any(|f| f.reason.contains("Full Disk Access"));
         let mut facts = vec![];
@@ -1919,122 +1915,134 @@ impl CleanerApp {
         }
         let failures = r.failures.iter().enumerate().map(|(i, f)| {
             div()
-                .px(pt(16.))
+                .px(pt(14.))
                 .py(pt(8.))
                 .when(i < last, |el| el.border_b_1().border_color(t.border))
                 .child(div().ellipsis().text_size(pt(12.)).child(f.path.clone()))
                 .child(div().text_size(pt(11.5)).text_color(t.text_3).child(f.reason.clone()))
         });
 
-        div()
-            .w_full()
-            .min_h_full()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .pt(TITLEBAR)
-            .px(pt(48.))
-            .pb(pt(48.))
-            .child(
-                div()
-                    .size(pt(88.))
-                    .mb(pt(24.))
-                    .rounded_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .bg(if ok { t.success_soft } else { t.warning_soft })
-                    .child(icon(if ok { "check" } else { "alert" }, 44., if ok { t.success } else { t.warning })),
-            )
-            .child(
-                div().font_weight(FontWeight::MEDIUM).text_color(t.text_2).child(if ok { "Space recovered" } else { "Nothing was removed" }),
-            )
-            .child(div().mt(pt(2.)).mb(pt(6.)).text_size(pt(44.)).font_weight(FontWeight::BOLD).child(bytes(r.freed)))
-            .child(
-                div().max_w(pt(420.)).text_center().text_size(pt(14.)).line_height(pt(21.)).text_color(t.text_2).child(if ok {
-                    format!(
-                        "{} moved to the Trash. Empty the Trash to free the space for good, or put items back if you need them.",
-                        plural(r.removed, "item", "items")
-                    )
-                } else {
-                    "None of the selected items could be moved to the Trash.".into()
-                }),
-            )
-            .when(!facts.is_empty(), |el| {
-                el.child(div().mt(pt(10.)).text_size(pt(12.5)).text_color(t.text_3).child(facts.join("   ·   ")))
-            })
-            .child(
-                div()
-                    .mt(pt(28.))
-                    .flex()
-                    .gap(pt(8.))
-                    .child(button("open-trash", "Open Trash", Some("trash"), Btn::Secondary, true, t).on_click(
-                        cx.listener(|this, _, _, cx| {
-                            if Command::new("/usr/bin/open").arg(scanner::home_dir().join(".Trash")).spawn().is_err() {
-                                this.show_toast("Couldn't open the Trash.", cx);
-                            }
-                        }),
-                    ))
-                    .child(
-                        button("scan-again", "Scan Again", Some("refresh"), if has_results { Btn::Secondary } else { Btn::Primary }, true, t)
-                            .on_click(cx.listener(|this, _, _, cx| this.start_scan(cx))),
-                    )
-                    .when(has_results, |el| {
-                        el.child(button("back-to-results", "Back to Results", None, Btn::Primary, true, t).on_click(cx.listener(
-                            |this, _, _, cx| {
-                                this.m.report = None;
-                                this.m.screen = Screen::Results;
-                                cx.notify();
-                            },
-                        )))
-                    }),
-            )
-            .when(!r.failures.is_empty(), |el| {
-                el.child(
+        Some(
+            modal_frame(t, pt(520.), max_h)
+                .child(
                     div()
-                        .id("failures")
-                        .w_full()
-                        .max_w(pt(560.))
-                        .max_h(pt(200.))
-                        .mt(pt(28.))
-                        .overflow_y_scroll()
-                        .rounded(pt(14.))
-                        .bg(t.surface)
-                        .shadow(card_shadow(t))
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .px(pt(32.))
+                        .pt(pt(32.))
+                        .pb(pt(8.))
                         .child(
                             div()
-                                .min_h(pt(40.))
-                                .pl(pt(16.))
-                                .pr(pt(6.))
+                                .size(pt(64.))
+                                .mb(pt(16.))
+                                .rounded_full()
                                 .flex()
                                 .items_center()
-                                .border_b_1()
-                                .border_color(t.border)
-                                .text_size(pt(12.))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(t.text_2)
-                                        .child(format!("{} couldn't be moved", plural(r.failures.len(), "item", "items"))),
-                                )
-                                .when(needs_access, |el| {
-                                    el.child(
-                                        button("open-privacy", "Open Full Disk Access Settings", None, Btn::Ghost, true, t).on_click(
-                                            cx.listener(|this, _, _, cx| {
-                                                let pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
-                                                if Command::new("/usr/bin/open").arg(pane).spawn().is_err() {
-                                                    this.show_toast("Couldn't open System Settings.", cx);
-                                                }
-                                            }),
-                                        ),
-                                    )
-                                }),
+                                .justify_center()
+                                .bg(if ok { t.success_soft } else { t.warning_soft })
+                                .child(icon(if ok { "check" } else { "alert" }, 32., if ok { t.success } else { t.warning })),
                         )
-                        .children(failures),
+                        .child(
+                            div()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(t.text_2)
+                                .child(if ok { "Space recovered" } else { "Nothing was removed" }),
+                        )
+                        .child(div().mt(pt(2.)).mb(pt(6.)).text_size(pt(36.)).font_weight(FontWeight::BOLD).child(bytes(r.freed)))
+                        .child(div().max_w(pt(400.)).text_center().text_size(pt(13.5)).line_height(pt(20.)).text_color(t.text_2).child(
+                            if ok {
+                                format!(
+                                    "{} moved to the Trash. Empty the Trash to free the space for good, or put items back if you need them.",
+                                    plural(r.removed, "item", "items")
+                                )
+                            } else {
+                                "None of the selected items could be moved to the Trash.".into()
+                            },
+                        ))
+                        .when(!facts.is_empty(), |el| {
+                            el.child(div().mt(pt(10.)).text_size(pt(12.)).text_color(t.text_3).child(facts.join("   ·   ")))
+                        }),
                 )
-            })
+                .when(!r.failures.is_empty(), |el| {
+                    el.child(
+                        div()
+                            .mx(pt(24.))
+                            .mt(pt(16.))
+                            .min_h(pt(40.))
+                            .pl(pt(14.))
+                            .pr(pt(6.))
+                            .flex()
+                            .items_center()
+                            .rounded_t(pt(10.))
+                            .border_1()
+                            .border_color(t.border)
+                            .bg(t.surface_2)
+                            .text_size(pt(12.))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(t.text_2)
+                                    .child(format!("{} couldn't be moved", plural(r.failures.len(), "item", "items"))),
+                            )
+                            .when(needs_access, |el| {
+                                el.child(button("open-privacy", "Open Full Disk Access Settings", None, Btn::Ghost, true, t).on_click(
+                                    cx.listener(|this, _, _, cx| {
+                                        let pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
+                                        if Command::new("/usr/bin/open").arg(pane).spawn().is_err() {
+                                            this.show_toast("Couldn't open System Settings.", cx);
+                                        }
+                                    }),
+                                ))
+                            }),
+                    )
+                    .child(
+                        div()
+                            .id("failures")
+                            .flex_1()
+                            .min_h_0()
+                            .mx(pt(24.))
+                            .overflow_y_scroll()
+                            .rounded_b(pt(10.))
+                            .border_1()
+                            .border_t_0()
+                            .border_color(t.border)
+                            .bg(t.surface_2)
+                            .children(failures),
+                    )
+                })
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(pt(8.))
+                        .p(pt(24.))
+                        .pt(pt(20.))
+                        .child(button("open-trash", "Open Trash", Some("trash"), Btn::Secondary, true, t).on_click(cx.listener(
+                            |this, _, _, cx| {
+                                if Command::new("/usr/bin/open").arg(scanner::home_dir().join(".Trash")).spawn().is_err() {
+                                    this.show_toast("Couldn't open the Trash.", cx);
+                                }
+                            },
+                        )))
+                        .child(div().flex_1())
+                        .child(
+                            button("scan-again", "Scan Again", Some("refresh"), Btn::Secondary, true, t)
+                                .on_click(cx.listener(|this, _, _, cx| this.start_scan(cx))),
+                        )
+                        .child(
+                            button("close-done", "Done", None, Btn::Primary, true, t)
+                                .on_click(cx.listener(|this, _, _, cx| this.close_done(cx))),
+                        ),
+                ),
+        )
+    }
+
+    fn close_done(&mut self, cx: &mut Context<Self>) {
+        self.m.report = None;
+        self.m.modal = Modal::None;
+        cx.notify();
     }
 
     /// Light / Dark / Auto segmented control in the top-right corner.
@@ -2673,7 +2681,6 @@ impl Render for CleanerApp {
             Screen::Welcome => scrolling(self.welcome(&t, cx)),
             Screen::Scanning => scrolling(self.scanning(&t, cx)),
             Screen::Results => self.results(&t, cx),
-            Screen::Done => scrolling(self.done(&t, cx)),
         };
         let max_h = (viewport.height - gpui::px(64. * self.zoom)).min(gpui::px(640. * self.zoom));
         let modal = match self.m.modal {
@@ -2682,6 +2689,7 @@ impl Render for CleanerApp {
             Modal::Working => Some(self.working(&t)),
             Modal::About => Some(self.about(&t, cx)),
             Modal::Update => self.update_dialog(&t, max_h, cx),
+            Modal::Done => self.done(&t, max_h, cx),
         };
         let popup = self.popup_layer(&t, viewport, cx);
 
@@ -2782,6 +2790,8 @@ impl Render for CleanerApp {
                             if this.m.modal == Modal::Update {
                                 this.close_update();
                                 cx.notify();
+                            } else if this.m.modal == Modal::Done {
+                                this.close_done(cx);
                             } else if matches!(this.m.modal, Modal::Confirm | Modal::About) {
                                 this.m.modal = Modal::None;
                                 cx.notify();

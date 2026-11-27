@@ -34,7 +34,6 @@ pub enum Screen {
     Welcome,
     Scanning,
     Results,
-    Done,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -44,6 +43,7 @@ pub enum Modal {
     Working,
     About,
     Update,
+    Done,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
